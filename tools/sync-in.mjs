@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 /**
- * sync-in.mjs —— 电脑端：合并手机导出的答题记录
+ * sync-in.mjs —— 电脑端：合并手机导出的记录
  *
  * 用法：
  *   node tools/sync-in.mjs <手机导出的 study-sync-*.json>
  *
- * 做三件事：
- *   1. 把记录并进  data/sync-state.json（按 lastAt 取更新的那份，重复导入不会算错）
+ * 做四件事：
+ *   1. 把答题记录并进  data/sync-state.json（按 lastAt 取更新的那份，重复导入不会算错）
  *   2. 生成 总结/_同步报告.md：各章正确率、错题清单、复习建议
- *   3. 打印同样的摘要到终端
+ *   3. 生成 总结/_提问记录.md：手机上问过 DeepSeek 的问题和回答，按天分组，供整理进笔记
+ *   4. 打印同样的摘要到终端
  *
  * 默认不改任何笔记文件。想让它顺手把错题追加到 错题本.md，加 --write-wrongbook
  * （只会追加，不会删已有的条目）。
@@ -20,6 +21,7 @@ import path from 'node:path';
 const ROOT = path.resolve(import.meta.dirname, '..');
 const STATE_FILE = path.join(ROOT, 'data', 'sync-state.json');
 const REPORT_FILE = path.join(ROOT, '总结', '_同步报告.md');
+const CHAT_FILE = path.join(ROOT, '总结', '_提问记录.md');
 const QUESTIONS_FILE = path.join(ROOT, 'app', 'data', 'questions.json');
 const WRONGBOOK_FILE = path.join(ROOT, '总结', '单片机-智能车', '错题本.md');
 
@@ -55,6 +57,82 @@ function fmtTime(ts) {
 
 function pct(a, b) {
   return b ? Math.round((a / b) * 100) + '%' : '—';
+}
+
+/** 多行文本转成引用块，用来区分「我问的」和「AI 答的」 */
+function quote(text) {
+  return String(text || '')
+    .trim()
+    .split('\n')
+    .map((l) => `> ${l}`.trimEnd())
+    .join('\n');
+}
+
+/**
+ * 把提问记录写成 总结/_提问记录.md。
+ * 每次全量重写（state.chat 是累积的），所以重复同步不会产生重复内容。
+ */
+async function writeChatFile(chat) {
+  if (!chat || !chat.length) return;
+
+  const dayOf = (ts) => {
+    if (!ts) return '（没记时间）';
+    const d = new Date(ts);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  };
+  const clockOf = (ts) => {
+    if (!ts) return '';
+    const d = new Date(ts);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+
+  // 配成「问 + 紧随其后的答」
+  const pairs = [];
+  for (let i = 0; i < chat.length; i++) {
+    const m = chat[i];
+    if (m.role !== 'user') continue;
+    const next = chat[i + 1];
+    pairs.push({ q: m, a: next && next.role === 'assistant' ? next : null });
+  }
+
+  const out = [];
+  out.push('# 提问记录');
+  out.push('');
+  out.push('> 手机上问 DeepSeek 的记录，由 `tools/sync-in.mjs` 从备份 JSON 累积生成，重复同步不会重复。');
+  out.push(`> 最后同步 ${fmtTime(Date.now())} · 共 ${pairs.length} 次问答`);
+  out.push('');
+  out.push('**怎么用**：把值得留下的内容整理进对应主题的笔记，然后删掉这里对应的小节。');
+  out.push('整理时照规矩来：只写骨架，重复讲的合并成一句，别把 AI 的推理过程搬进去。');
+  out.push('');
+
+  let lastDay = '';
+  for (const { q, a } of pairs) {
+    const day = dayOf(q.at);
+    if (day !== lastDay) {
+      out.push(`## ${day}`);
+      out.push('');
+      lastDay = day;
+    }
+    out.push(`### ${clockOf(q.at) || '—'}`);
+    out.push('');
+    out.push('**问**');
+    out.push('');
+    out.push(quote(q.content));
+    out.push('');
+    if (a) {
+      out.push('**答**');
+      out.push('');
+      out.push(String(a.content || '').trim());
+      out.push('');
+    }
+    out.push('---');
+    out.push('');
+  }
+
+  await mkdir(path.dirname(CHAT_FILE), { recursive: true });
+  await writeFile(CHAT_FILE, out.join('\n'), 'utf8');
 }
 
 async function main() {
@@ -116,6 +194,22 @@ async function main() {
     newLogs++;
   }
   state.log.sort((a, b) => (a.at || 0) - (b.at || 0));
+
+  // 提问记录：按 role + 时间 + 开头 60 字去重后累积（旧备份没有 at 字段，按 0 排前面）
+  state.chat = Array.isArray(state.chat) ? state.chat : [];
+  const incomingChat = Array.isArray(data.chat) ? data.chat : [];
+  const chatKey = (m) => `${m.role}@${m.at || 0}@${String(m.content || '').slice(0, 60)}`;
+  const chatSeen = new Set(state.chat.map(chatKey));
+  let newChat = 0;
+  for (const m of incomingChat) {
+    if (!m || !m.content) continue;
+    const k = chatKey(m);
+    if (chatSeen.has(k)) continue;
+    chatSeen.add(k);
+    state.chat.push({ role: m.role, content: m.content, at: m.at || 0 });
+    newChat++;
+  }
+  state.chat.sort((a, b) => (a.at || 0) - (b.at || 0));
 
   const deviceKey = String(data.device || '').slice(0, 60) || 'unknown-device';
   state.devices[deviceKey] = {
@@ -217,6 +311,10 @@ async function main() {
   await mkdir(path.dirname(REPORT_FILE), { recursive: true });
   await writeFile(REPORT_FILE, lines.join('\n'), 'utf8');
 
+  // ---------------------------------------------------------------- 提问记录
+
+  await writeChatFile(state.chat);
+
   // ---------------------------------------------------------------- 可选：回写错题本
 
   if (writeWrongbook && wrong.length) {
@@ -262,7 +360,11 @@ async function main() {
   console.log('  ─────────────────────────────');
   console.log(`  记录文件   ${path.relative(ROOT, STATE_FILE).split(path.sep).join('/')}`);
   console.log(`  学情报告   ${path.relative(ROOT, REPORT_FILE).split(path.sep).join('/')}`);
+  if (state.chat.length) {
+    console.log(`  提问记录   ${path.relative(ROOT, CHAT_FILE).split(path.sep).join('/')}`);
+  }
   console.log(`  本次更新   ${updated} 条（跳过 ${skipped} 条旧记录，新增 ${newLogs} 条作答日志）`);
+  if (newChat) console.log(`  新问答     ${newChat} 条（累计 ${state.chat.length} 条消息）`);
   console.log('  ─────────────────────────────');
   console.log(`  做过的题   ${progressList.length}`);
   console.log(`  已掌握     ${mastered.length}`);

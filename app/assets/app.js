@@ -12,6 +12,26 @@ import { streamChat, testConnection, MODELS } from './ai.js';
 const $app = document.getElementById('app');
 const $toast = document.getElementById('toast-host');
 
+// 「学习」tab 记住最后停在哪一页，切到提问/配置再切回来不丢位置
+const LAST_STUDY_KEY = 'study-app:last-study';
+
+function readLastStudy() {
+  try {
+    const v = localStorage.getItem(LAST_STUDY_KEY);
+    return v && v.startsWith('#/') ? v : '';
+  } catch {
+    return '';
+  }
+}
+
+function saveLastStudy(hash) {
+  try {
+    localStorage.setItem(LAST_STUDY_KEY, hash);
+  } catch {
+    /* 隐私模式下写不了，不影响用 */
+  }
+}
+
 const state = {
   lib: null,
   qs: null,
@@ -23,6 +43,7 @@ const state = {
   abortCtl: null,
   readToc: false,
   dataSource: 'local',   // local = 打包进来的副本；cloud = 启动后从 GitHub 拉到更新的
+  lastStudyHash: readLastStudy(),   // 学习区最后停在哪（切 tab 回来用）
 };
 
 // ---------------------------------------------------------------- 小工具
@@ -149,14 +170,15 @@ const ICON = {
 
 function tabbar(active) {
   const tabs = [
-    { id: 'study', label: '学习', hash: '#/study' },
-    { id: 'ask', label: '提问', hash: '#/ask' },
-    { id: 'settings', label: '配置', hash: '#/settings' },
+    // 学习 tab 自己算目标地址：在别处就看上次停的页面，已经在学习区就回首页
+    { id: 'study', label: '学习', act: 'tab-study', hash: '' },
+    { id: 'ask', label: '提问', act: 'nav', hash: '#/ask' },
+    { id: 'settings', label: '配置', act: 'nav', hash: '#/settings' },
   ];
   return `<nav class="tabbar">${tabs
     .map(
       (t) =>
-        `<button class="tab ${active === t.id ? 'active' : ''}" data-act="nav" data-to="${t.hash}">${ICON[t.id]}<span>${t.label}</span></button>`
+        `<button class="tab ${active === t.id ? 'active' : ''}" data-act="${t.act}" data-to="${t.hash}">${ICON[t.id]}<span>${t.label}</span></button>`
     )
     .join('')}</nav>`;
 }
@@ -626,6 +648,12 @@ function render() {
   const r = parseHash();
   let html;
 
+  // 学习区的页面记一笔，切 tab 回来能接着看
+  if (['study', 's', 'r', 'quiz'].includes(r.name)) {
+    state.lastStudyHash = location.hash;
+    saveLastStudy(location.hash);
+  }
+
   switch (r.name) {
     case 's':
       html = viewSubject(r.args[0] || '');
@@ -767,8 +795,9 @@ async function sendMessage(text) {
   if (!content || state.sending) return;
 
   state.sending = true;
-  state.chat.push({ role: 'user', content });
-  state.chat.push({ role: 'assistant', content: '', streaming: true });
+  const now = Date.now();
+  state.chat.push({ role: 'user', content, at: now });
+  state.chat.push({ role: 'assistant', content: '', streaming: true, at: now });
   await store.saveChat(state.chat.filter((m) => !m.streaming));
   render();
 
@@ -810,7 +839,7 @@ async function sendMessage(text) {
   } finally {
     state.sending = false;
     state.abortCtl = null;
-    await store.saveChat(state.chat.map((m) => ({ role: m.role, content: m.content })));
+    await store.saveChat(state.chat.map((m) => ({ role: m.role, content: m.content, at: m.at })));
     render();
   }
 }
@@ -956,6 +985,14 @@ document.addEventListener('click', async (e) => {
     case 'nav':
       nav(el.dataset.to);
       break;
+
+    case 'tab-study': {
+      // 已经在学习区 → 回首页；从提问/配置切过来 → 回到上次看的那一页
+      const cur = parseHash();
+      const inStudy = ['study', 's', 'r', 'quiz'].includes(cur.name);
+      nav(inStudy ? '#/study' : state.lastStudyHash || '#/study');
+      break;
+    }
 
     case 'jump': {
       const target = document.getElementById(el.dataset.id);

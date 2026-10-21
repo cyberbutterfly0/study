@@ -33,7 +33,7 @@ tools/
 ├── build-questions.mjs   总结/*.md 里的「选择题」→ app/data/questions.json
 ├── make-icons.mjs        生成 PWA 图标（手写 PNG 编码，无依赖）
 ├── serve.mjs             本地预览
-└── sync-in.mjs           手机导出的答题记录 → 电脑端学情报告
+└── sync-in.mjs           手机导出的记录 → 电脑端学情报告 + 提问记录
 ```
 
 ## 日常怎么用
@@ -53,7 +53,12 @@ git add -A && git commit -m "内容更新" && git push
 1. 手机上「配置 → 同步到电脑」，导出 `study-sync-*.json`
 2. 电脑上 `node tools/sync-in.mjs <文件路径>`
 3. 生成 `总结/_同步报告.md`（各章正确率、错题清单）
-4. 加 `--write-wrongbook` 可以把错题追加进 `错题本.md`
+4. 生成 `总结/_提问记录.md`（手机上问过 DeepSeek 的问答，按天分组，供整理进笔记）
+5. 加 `--write-wrongbook` 可以把错题追加进 `错题本.md`
+
+重复导入同一个 JSON 不会重复记账（按题目最后作答时间和 `qid@时间戳` 去重）。
+
+**把提问整理进笔记**：同步完打开 `总结/_提问记录.md`，挑值得留的内容按笔记规矩（只写骨架、不写思维辨析）并进对应主题的 md，然后删掉对应小节。下次同步会重新生成这个文件，但已整理进笔记的内容不会丢。
 
 **本地预览**：
 
