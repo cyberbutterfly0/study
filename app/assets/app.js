@@ -179,11 +179,22 @@ function viewStudy() {
   const wrong = store.wrongCount(list);
   const mastered = store.masteredCount(list);
 
+  // 阅读进度：滚过半篇算「读过」
+  const readMarks = state.readMarks || {};
+  const isRead = (id) => (readMarks[id] || 0) >= 0.5;
+  const totalSecs = subjects.reduce((n, s) => n + s.sections.length, 0);
+  const readSecs = subjects.reduce((n, s) => n + s.sections.filter((sec) => isRead(sec.id)).length, 0);
+
   const cards = subjects
     .map((s) => {
       const st = subjectStats(s.id);
-      const qsCount = st.total;
-      const desc = [s.sections.length + ' 篇笔记', qsCount ? qsCount + ' 道题' : '', st.mastered ? `已掌握 ${st.mastered}` : '']
+      const readN = s.sections.filter((sec) => isRead(sec.id)).length;
+      const desc = [
+        `${s.sections.length} 篇笔记`,
+        readN ? `已读 ${readN}/${s.sections.length}` : '',
+        st.total ? `${st.total} 道题` : '',
+        st.mastered ? `已掌握 ${st.mastered}` : '',
+      ]
         .filter(Boolean)
         .join(' · ');
       return `<button class="list-item" data-act="nav" data-to="#/s/${encodeURIComponent(s.id)}">
@@ -198,7 +209,7 @@ function viewStudy() {
     .join('');
 
   return `<div class="page">
-    ${header({ title: '学习', sub: state.lib ? `${subjects.length} 个主题` : '' })}
+    ${header({ title: '学习', sub: state.lib ? `${subjects.length} 个主题 · ${pq.length} 道题` : '' })}
 
     ${
       due > 0
@@ -215,8 +226,8 @@ function viewStudy() {
 
     <div class="stats">
       <div class="stat warn"><b>${due}</b><span>待复习</span></div>
-      <div class="stat accent"><b>${mastered}</b><span>已掌握</span></div>
-      <div class="stat"><b>${pq.length}</b><span>总题数</span></div>
+      <div class="stat accent"><b>${readSecs}<i style="font-style:normal;font-size:15px;color:var(--text-3);font-weight:400">/${totalSecs}</i></b><span>已读笔记</span></div>
+      <div class="stat"><b>${mastered}</b><span>已掌握</span></div>
     </div>
 
     <h2 class="section-title">主题</h2>
@@ -246,17 +257,24 @@ function viewSubject(subjectId) {
 
   const st = subjectStats(subjectId);
   const readMarks = state.readMarks || {};
+  const readN = s.sections.filter((sec) => (readMarks[sec.id] || 0) >= 0.5).length;
 
   const items = s.sections
     .map((sec) => {
       const qCount = (allQuestions().filter((x) => x.chapter.id === sec.id) || []).length;
       const ratio = readMarks[sec.id] || 0;
+      const done = ratio >= 0.5;
       const kindLabel = { chapter: '章节', appendix: '附录', overview: '总览', note: '笔记' }[sec.kind] || '';
       const desc = [kindLabel, `${Math.round(sec.chars / 1000) || 1}k 字`, qCount ? `${qCount} 题` : ''].filter(Boolean).join(' · ');
+      const mark = done
+        ? ' · <span style="color:var(--green)">已读完</span>'
+        : ratio > 0.05
+          ? ` · <span style="color:var(--text-3)">读到 ${Math.round(ratio * 100)}%</span>`
+          : '';
       return `<button class="list-item" data-act="nav" data-to="#/r/${encodeURIComponent(sec.id)}">
         <span class="li-main">
           <span class="li-title">${esc(sec.name)}</span>
-          <span class="li-desc">${esc(desc)}${ratio > 0.05 ? ` · <span style="color:var(--green)">已读 ${Math.round(ratio * 100)}%</span>` : ''}</span>
+          <span class="li-desc">${esc(desc)}${mark}</span>
         </span>
         <span class="chev">›</span>
       </button>`;
@@ -275,7 +293,7 @@ function viewSubject(subjectId) {
   return `<div class="page">
     ${header({ title: s.name, back: '#/study' })}
     <div class="stats" style="margin-bottom:8px">
-      <div class="stat"><b>${s.sections.length}</b><span>篇笔记</span></div>
+      <div class="stat"><b>${readN}<i style="font-style:normal;font-size:15px;color:var(--text-3);font-weight:400">/${s.sections.length}</i></b><span>已读</span></div>
       <div class="stat accent"><b>${st.mastered}</b><span>已掌握</span></div>
       <div class="stat warn"><b>${st.wrong}</b><span>错题</span></div>
     </div>
@@ -513,6 +531,12 @@ function viewAsk() {
 function viewSettings() {
   const s = state.settings;
   const hasKey = Boolean(s.apiKey);
+  // 有 key 时默认锁住，点「修改」才解锁；没 key 时直接可填
+  // 没存过 key 就直接给编辑态（没什么可锁的）；有 key 默认锁住，点「修改」才解
+  const keyEditing = hasKey ? state.keyEditing === true : true;
+  const keyBtns = keyEditing
+    ? `${hasKey ? '<button class="btn btn-ghost btn-sm" data-act="key-cancel">取消</button>' : ''}<button class="btn btn-sm" data-act="key-save">确定</button>`
+    : '<button class="btn btn-ghost btn-sm" data-act="key-edit">修改</button>';
 
   return `<div class="page">
     ${header({ title: '配置' })}
@@ -521,8 +545,12 @@ function viewSettings() {
     <div class="card card-pad">
       <div class="field">
         <label for="cfg-key">API Key</label>
-        <input class="input input-mono" id="cfg-key" type="password" autocomplete="off" spellcheck="false"
-          placeholder="sk-..." value="${esc(s.apiKey)}">
+        <div class="key-row">
+          <input class="input input-mono${keyEditing ? '' : ' is-locked'}" id="cfg-key" type="password"
+            autocomplete="off" spellcheck="false" placeholder="sk-..."
+            value="${esc(s.apiKey)}" ${keyEditing ? '' : 'readonly'}>
+          ${keyBtns}
+        </div>
         <div class="hint">在 <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener" style="color:var(--brand-text)">platform.deepseek.com</a> 创建。只存在这台手机浏览器里，不会上传。</div>
       </div>
 
@@ -683,6 +711,8 @@ function observeRead() {
   };
   readObserver = onScroll;
   window.addEventListener('scroll', onScroll, { passive: true });
+  // 进来先算一次：一屏就能读完的短笔记不滚动也能被记上
+  onScroll();
 }
 
 // ---------------------------------------------------------------- 答题动作
@@ -990,6 +1020,52 @@ document.addEventListener('click', async (e) => {
       await doTestApi();
       break;
 
+    case 'key-edit': {
+      state.keyEditing = true;
+      render();
+      const el = document.getElementById('cfg-key');
+      if (el) {
+        el.focus();
+        el.setSelectionRange(el.value.length, el.value.length);
+      }
+      break;
+    }
+
+    case 'key-cancel':
+      state.keyEditing = false;
+      render();
+      break;
+
+    case 'key-save': {
+      const el = document.getElementById('cfg-key');
+      const v = (el?.value || '').trim();
+      if (!v) {
+        // 空值 = 想删掉 key，二次确认再清
+        showSheet({
+          title: '清空 API Key？',
+          desc: '清空后「提问」页用不了，要重新填一个才行。',
+          confirmText: '清空',
+          danger: true,
+          onConfirm: () => {
+            state.settings = store.saveSettings({ apiKey: '' });
+            state.keyEditing = false;
+            render();
+            toast('已清空');
+          },
+        });
+        return;
+      }
+      if (!/^sk-[A-Za-z0-9_-]{10,}$/.test(v)) {
+        // 不拦死，只提醒——以后 key 格式若变了也别让用户存不进去
+        toast('格式看着不像 sk- 开头的 key，已照存');
+      }
+      state.settings = store.saveSettings({ apiKey: v });
+      state.keyEditing = false;
+      render();
+      toast('已保存');
+      break;
+    }
+
     case 'export':
       await exportBackup(false);
       break;
@@ -1036,25 +1112,27 @@ document.addEventListener('keydown', (e) => {
     e.target.value = '';
     sendMessage(text);
   }
+  if (e.target.id === 'cfg-key' && e.key === 'Enter') {
+    e.preventDefault();
+    document.querySelector('[data-act="key-save"]')?.click();
+  }
 });
 
-// 配置项即时保存
+// 配置项即时保存（API Key 例外：要点「确定」才落盘，避免误删）
 document.addEventListener('change', (e) => {
   const t = e.target;
-  if (t.id === 'cfg-key') {
-    state.settings = store.saveSettings({ apiKey: t.value.trim() });
-    // 只动按钮状态，整页重渲染会把已经失焦的输入框再打断一次
-    const btn = document.querySelector('[data-act="test-api"]');
-    if (btn) btn.disabled = !t.value.trim();
-  }
   if (t.id === 'cfg-model') state.settings = store.saveSettings({ model: t.value });
   if (t.id === 'cfg-base') state.settings = store.saveSettings({ baseUrl: t.value.trim() || 'https://api.deepseek.com' });
 });
 
 async function doTestApi() {
+  // 用输入框里当前的 key（可能还没点「确定」，测试不该逼人先保存）
+  const el = document.getElementById('cfg-key');
+  const typed = el?.value.trim();
+  const probe = typed ? { ...state.settings, apiKey: typed } : state.settings;
   toast('正在测试…', 1200);
   try {
-    const r = await testConnection(state.settings);
+    const r = await testConnection(probe);
     showSheet({
       title: '连接正常',
       desc: `模型回了「${r.reply || '（空）'}」，耗时 ${r.ms} ms。可以开始提问了。`,

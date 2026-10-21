@@ -983,6 +983,21 @@ p.muted,
 
 .input-mono { font-family: var(--font-mono); font-size: 13px; }
 
+/* API Key 锁定态：只读 + 加锁图标，点「修改」才解锁 */
+.key-row { display: flex; gap: 8px; align-items: center; }
+.key-row .input { flex: 1; min-width: 0; }
+.key-row .btn { flex: 0 0 auto; height: 42px; }
+
+.input.is-locked {
+  background: var(--bg-sunken);
+  color: var(--text-3);
+  cursor: default;
+  letter-spacing: 0.08em;
+}
+
+.input.is-locked:focus { border-color: var(--border-2); }
+
+
 /* ---------- 空状态 ---------- */
 
 .empty {

@@ -224,7 +224,12 @@ export async function markRead(sectionId, ratio) {
 // ---------------------------------------------------------------- 导入导出
 
 export async function exportAll() {
-  const [progress, log, messages] = await Promise.all([allProgress(), getLog(), getChat()]);
+  const [progress, log, messages, readMarks] = await Promise.all([
+    allProgress(),
+    getLog(),
+    getChat(),
+    getReadMarks(),
+  ]);
   const s = getSettings();
   return {
     format: 'study-app-backup',
@@ -239,6 +244,7 @@ export async function exportAll() {
     progress,
     log,
     chat: messages,
+    readMarks,
   };
 }
 
@@ -263,6 +269,30 @@ export async function importAll(data) {
     }
     await putOne(STORE_PROGRESS, p);
     imported++;
+  }
+
+  // 作答日志：按 qid@at 去重后追加（旧 id 丢掉，让自增重新分配）
+  const seen = new Set((await getLog()).map((l) => `${l.qid}@${l.at}`));
+  for (const l of data.log || []) {
+    if (!l || !l.qid) continue;
+    const key = `${l.qid}@${l.at}`;
+    if (seen.has(key)) continue;
+    const { id: _drop, ...rest } = l;
+    await tx(STORE_LOG, 'readwrite', (s) => s.add(rest));
+    seen.add(key);
+  }
+
+  // 阅读进度取较大值
+  if (data.readMarks && typeof data.readMarks === 'object') {
+    const map = await getReadMarks();
+    let changed = false;
+    for (const [k, v] of Object.entries(data.readMarks)) {
+      if ((v || 0) > (map[k] || 0)) {
+        map[k] = Math.min(1, v);
+        changed = true;
+      }
+    }
+    if (changed) await putOne(STORE_KV, { k: READ_KEY, map });
   }
 
   return { imported, skipped };

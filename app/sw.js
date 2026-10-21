@@ -3,13 +3,13 @@
  *
  * 策略：
  *   页面导航  → 网络优先，断网回退缓存的 index.html（离线打开 app）
- *   静态资源  → stale-while-revalidate（先用缓存秒开，后台悄悄更新）
- *   数据 JSON → 网络优先 + 缓存兜底（这样电脑上重新构建题库，手机连网刷新就能拿到新题）
+ *   代码/数据 → 网络优先 + 缓存兜底（这样电脑上重新构建，手机连网刷新就能拿到新版本）
+ *   其余资源  → stale-while-revalidate（先用缓存秒开，后台悄悄更新）
  *
  * 改了这个文件里的 CACHE 版本号，旧缓存会在下次激活时清掉。
  */
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE = `study-app-${VERSION}`;
 
 const PRECACHE = [
@@ -73,8 +73,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 数据文件：网络优先
-  if (url.pathname.includes('/data/') || url.pathname.endsWith('manifest.webmanifest')) {
+  // 代码和数据：网络优先（改了代码要立刻生效，不能等下一次打开）
+  if (
+    url.pathname.includes('/data/') ||
+    url.pathname.includes('/assets/') ||
+    url.pathname.endsWith('manifest.webmanifest')
+  ) {
     event.respondWith(
       fetch(req)
         .then((res) => {
