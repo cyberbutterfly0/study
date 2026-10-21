@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "d529963d-d655-49c1-93ad-ccf4a082e6b5",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "E:\\dsh结算\\study\\.archify\\workflow-hashmap-20260214-000000\\candidate.json",
+  "output": "E:\\dsh结算\\study\\总结\\Java-集合框架\\图\\equals-hashCode-取值链.html",
+  "specification": {
+    "sha256": "4545e5289608e0c43e73533420a9485c5dc3bcdc388453f7a2f6338c3352a2f4",
+    "bytes": 2511
+  },
+  "artifact": {
+    "sha256": "a9642f9f4b681a172eb36070d353caf80c0c84f6d5fdf67a6622adb1bbf70f98",
+    "bytes": 757264
+  }
+}

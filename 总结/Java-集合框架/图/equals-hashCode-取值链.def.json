@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "HashMap 取值判定链",
+    "output": "总结/Java-集合框架/图/equals-hashCode-取值链.html",
+    "visual_preset": "blueprint",
+    "animation": "trace",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    { "id": "eq_rule", "type": "frontend", "label": "equals 契约", "sublabel": "内容相等", "pos": [40, 130], "size": [150, 60] },
+    { "id": "hash_rule", "type": "frontend", "label": "hashCode 契约", "sublabel": "相等则哈希相等", "pos": [40, 260], "size": [150, 60] },
+    { "id": "entry", "type": "external", "label": "自定义对象当 key", "sublabel": "put 再 get", "pos": [290, 195], "size": [180, 62] },
+    { "id": "hash", "type": "backend", "label": "hashCode 算下标", "sublabel": "决定进哪个桶", "pos": [570, 195], "size": [180, 62] },
+    { "id": "bucket", "type": "database", "label": "桶内 equals 比对", "sublabel": "链表 / 红黑树", "pos": [850, 195], "size": [180, 62] },
+    { "id": "value_out", "type": "cloud", "label": "命中取值", "sublabel": "先同桶再相等", "pos": [1130, 110], "size": [160, 62] },
+    { "id": "null_out", "type": "security", "label": "get 返回 null", "sublabel": "不同桶或桶内不等", "pos": [1130, 290], "size": [170, 62] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "先决条件", "wraps": ["eq_rule", "hash_rule"], "pad": 16 },
+    { "kind": "region", "label": "取值过程", "wraps": ["entry", "hash", "bucket"], "pad": 14 },
+    { "kind": "region", "label": "结果", "wraps": ["value_out", "null_out"], "pad": 16 }
+  ],
+  "connections": [
+    { "from": "eq_rule", "to": "entry", "label": "先明确契约", "variant": "dashed" },
+    { "from": "hash_rule", "to": "entry", "variant": "dashed" },
+    { "from": "entry", "to": "hash", "label": "都先算哈希", "variant": "emphasis" },
+    { "from": "hash", "to": "bucket", "label": "定位到桶", "variant": "emphasis" },
+    { "from": "bucket", "to": "null_out", "label": "没重写 hashCode", "variant": "security", "route": "orthogonal-h" },
+    { "from": "bucket", "to": "value_out", "label": "两个都重写", "variant": "emphasis", "route": "orthogonal-h" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "一句话结论", "items": ["先按 hashCode 定位到桶，再在桶内按 equals 逐个比对。", "两者缺一，get 都可能返回 null：只重写 equals 会进错桶，只重写 hashCode 会在桶内判不等。"] }
+  ]
+}

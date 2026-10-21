@@ -1,0 +1,16 @@
+{
+  "name": "study-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "把 总结/ 里的学习笔记和题目打包成手机端 PWA：离线阅读、刷题、错题本、DeepSeek 问答",
+  "scripts": {
+    "build": "node tools/build-library.mjs && node tools/build-questions.mjs && node tools/make-icons.mjs",
+    "build:content": "node tools/build-library.mjs && node tools/build-questions.mjs",
+    "serve": "node tools/serve.mjs",
+    "sync": "node tools/sync-in.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

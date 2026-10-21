@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="学习">
+  <rect width="512" height="512" rx="113" fill="#4176e6"/>
+  <g fill="#ffffff">
+    <rect x="123" y="153" width="129" height="205" rx="8"/>
+    <rect x="260" y="153" width="129" height="205" rx="8"/>
+  </g>
+  <g fill="#4176e6">
+    <rect x="146" y="190" width="86" height="11" rx="5"/>
+    <rect x="146" y="243" width="61" height="11" rx="5"/>
+    <rect x="146" y="296" width="74" height="11" rx="5"/>
+    <rect x="283" y="190" width="86" height="11" rx="5"/>
+    <rect x="283" y="243" width="61" height="11" rx="5"/>
+    <rect x="283" y="296" width="74" height="11" rx="5"/>
+  </g>
+</svg>

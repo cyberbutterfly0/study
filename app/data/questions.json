@@ -1,0 +1,230 @@
+{
+  "version": 1,
+  "generatedAt": "2026-10-21T07:43:07.994Z",
+  "totalQuestions": 4,
+  "subjects": [
+    {
+      "id": "单片机-智能车",
+      "name": "单片机-智能车",
+      "chapters": [
+        {
+          "id": "单片机-智能车/第1章-单片机基础与工程搭建",
+          "name": "第1章-单片机基础与工程搭建",
+          "source": "总结/单片机-智能车/第1章-单片机基础与工程搭建.md",
+          "questions": [
+            {
+              "id": "单片机-智能车/第1章-单片机基础与工程搭建/q1",
+              "no": 1,
+              "stem": "STM32F103 上电复位后，CPU 默认跑在哪个时钟上？",
+              "options": [
+                {
+                  "key": "A",
+                  "text": "HSE 8 MHz"
+                },
+                {
+                  "key": "B",
+                  "text": "HSI 8 MHz"
+                },
+                {
+                  "key": "C",
+                  "text": "PLL 输出的 72 MHz"
+                },
+                {
+                  "key": "D",
+                  "text": "LSI 40 kHz"
+                }
+              ],
+              "answer": "B",
+              "explain": "复位后 RCC 默认选择 HSI 作为 SYSCLK，HSE 和 PLL 都没开。要跑到 72 MHz 必须由软件（CubeMX 生成的 `SystemClock_Config()`）依次使能 HSE、配置 PLL、切换 SYSCLK 源、再改 AHB/APB 分频。A 错在 HSE 复位后是关闭状态；C 错在 PLL 复位后关闭；D 是看门狗用的低速时钟，从不给 CPU 供时钟。",
+              "pitfall": "以为上电就是 72 MHz，忘了自己没调 `SystemClock_Config()`，结果波特率、定时全按 72 MHz 算，实际 8 MHz，全错。",
+              "kind": "",
+              "terms": [
+                {
+                  "term": "HSE",
+                  "meaning": "High-Speed External，外部高速时钟源，接在 OSC_IN/OSC_OUT 的晶振",
+                  "plain": "板子上焊的那颗晶振，一般 8 MHz"
+                },
+                {
+                  "term": "HSI",
+                  "meaning": "High-Speed Internal，芯片内部 RC 振荡器，校准到 8 MHz",
+                  "plain": "芯片自带的小闹钟，不用外接元件"
+                },
+                {
+                  "term": "PLL",
+                  "meaning": "锁相环倍频器",
+                  "plain": "倍速器，8 MHz 进去、72 MHz 出来"
+                },
+                {
+                  "term": "SYSCLK",
+                  "meaning": "系统主时钟",
+                  "plain": "CPU 真正在用的那个节拍"
+                },
+                {
+                  "term": "LSI",
+                  "meaning": "内部低速时钟，约 40 kHz，主要给看门狗",
+                  "plain": "慢速备用表，管\"看门狗\"这种慢活"
+                }
+              ],
+              "rev": "ff61d0177e"
+            },
+            {
+              "id": "单片机-智能车/第1章-单片机基础与工程搭建/q2",
+              "no": 2,
+              "stem": "外部 8 MHz 晶振经 PLL ×9 到 72 MHz，AHB /1，APB1 /2，APB2 /1。挂在 APB1 上的 TIM3，计数时钟是多少 MHz？",
+              "options": [
+                {
+                  "key": "A",
+                  "text": "36 MHz"
+                },
+                {
+                  "key": "B",
+                  "text": "72 MHz"
+                },
+                {
+                  "key": "C",
+                  "text": "18 MHz"
+                },
+                {
+                  "key": "D",
+                  "text": "8 MHz"
+                }
+              ],
+              "answer": "B",
+              "explain": "PCLK1 = 36 MHz，但 APB1 预分频系数是 2（不为 1），按规则定时器时钟 = PCLK1 × 2 = 72 MHz。A 是把总线时钟直接当成定时器时钟，最典型的错。C 是又乘又除的胡乱推导。D 是错把 HSE 当计数源。",
+              "pitfall": "按 36 MHz 算 PSC/ARR，实际定时器跑 72 MHz，周期整整差一倍，PID 采样周期跟着错。",
+              "kind": "",
+              "terms": [
+                {
+                  "term": "AHB / APB",
+                  "meaning": "片上两条总线：AHB 接高速部件，APB 接外设",
+                  "plain": "芯片里的一级公路和二级公路"
+                },
+                {
+                  "term": "PCLK1",
+                  "meaning": "APB1 总线时钟 = HCLK / APB1 分频",
+                  "plain": "外设总线的节拍，APB1 最高 36 MHz"
+                },
+                {
+                  "term": "预分频（Prescaler）",
+                  "meaning": "把输入时钟按整数比例降频",
+                  "plain": "把快节拍切成慢节拍"
+                },
+                {
+                  "term": "计数时钟",
+                  "meaning": "定时器计数器每加一用的频率",
+                  "plain": "秒表走一格的快慢"
+                },
+                {
+                  "term": "TIM3",
+                  "meaning": "STM32 的通用定时器之一，挂在 APB1 上",
+                  "plain": "三号秒表，走 APB1 这条线"
+                }
+              ],
+              "rev": "2408d9bc26"
+            },
+            {
+              "id": "单片机-智能车/第1章-单片机基础与工程搭建/q3",
+              "no": 3,
+              "stem": "代码用 HAL 发串口字符串，程序确实在跑（LED 正常闪），但串口助手收到的全是乱码。最可能的原因？",
+              "options": [
+                {
+                  "key": "A",
+                  "text": "RX/TX 两根线接反了"
+                },
+                {
+                  "key": "B",
+                  "text": "算波特率时用的时钟频率和实际系统时钟不一致"
+                },
+                {
+                  "key": "C",
+                  "text": "没开串口接收中断"
+                },
+                {
+                  "key": "D",
+                  "text": "发送函数里数据长度传错了"
+                }
+              ],
+              "answer": "B",
+              "explain": "乱码但收到了数据，说明链路通、外设在工作，只是每一位的时间宽度对不上——这是波特率不匹配的典型特征。而波特率是拿 PCLK 算出来的，PCLK 错了波特率就错。A 会导致完全收不到数据（或只收到自己发的回环），不是乱码。C 只影响接收，不影响发送。D 一般表现为数据截断或混杂，不会整串都是乱码。",
+              "pitfall": "改了 PLL 倍频或 APB 分频，忘了 CubeMX 里串口参数要重新生成/重算，串口助手还在用旧的波特率。",
+              "kind": "",
+              "terms": [
+                {
+                  "term": "波特率",
+                  "meaning": "每秒传输的位数（bit/s），收发双方必须一致",
+                  "plain": "说话的语速，两边不一样快就听成乱码"
+                },
+                {
+                  "term": "RX / TX",
+                  "meaning": "接收引脚 / 发送引脚",
+                  "plain": "一根耳朵一根嘴，要交叉接"
+                },
+                {
+                  "term": "串口接收中断",
+                  "meaning": "收到数据时触发的接收中断，只影响接收路径",
+                  "plain": "只负责\"听\"的那条路"
+                },
+                {
+                  "term": "PCLK",
+                  "meaning": "串口所在总线的时钟，用来算波特率",
+                  "plain": "算语速时用的节拍源"
+                }
+              ],
+              "rev": "3943fa4c7b"
+            },
+            {
+              "id": "单片机-智能车/第1章-单片机基础与工程搭建/q4",
+              "no": 4,
+              "stem": "为什么每个外设要有独立的时钟使能位，而不是像主频那样一个总开关？",
+              "options": [
+                {
+                  "key": "A",
+                  "text": "门控省功耗：没使能的外设时钟不翻转，几乎不耗动态功耗"
+                },
+                {
+                  "key": "B",
+                  "text": "纯粹是历史设计遗留，没有实际好处"
+                },
+                {
+                  "key": "C",
+                  "text": "防止外设之间互相干扰数据"
+                },
+                {
+                  "key": "D",
+                  "text": "只有逐个使能才能把主频提上去"
+                }
+              ],
+              "answer": "A",
+              "explain": "CMOS 电路的动态功耗和时钟频率成正比，一个不用的外设如果时钟一直喂着，它会一直翻转、一直耗电。门控（clock gating）是低功耗设计的基本手段，电池供电和小车这种靠电机电池供电的场景尤其重要。B 错在否认了真实收益；C 错在干扰靠的是地址空间和中断优先级，不是时钟门；D 跟主频没有任何关系。",
+              "pitfall": "为省事把 RCC 所有外设时钟全开，待机电流下不来，查了半天以为是漏电。",
+              "kind": "",
+              "terms": [
+                {
+                  "term": "时钟使能位",
+                  "meaning": "RCC 寄存器里控制某个外设时钟开关的位",
+                  "plain": "每个外设的独立电闸"
+                },
+                {
+                  "term": "门控（Clock Gating）",
+                  "meaning": "用使能位切断外设时钟，省电",
+                  "plain": "不用就把电闸拉下"
+                },
+                {
+                  "term": "动态功耗",
+                  "meaning": "电路翻转时消耗的功率，与时钟频率成正比",
+                  "plain": "动起来才费电，动得越快越费"
+                },
+                {
+                  "term": "RCC",
+                  "meaning": "Reset and Clock Control，管复位与时钟的外设",
+                  "plain": "总电闸加时钟分配器"
+                }
+              ],
+              "rev": "356aa9c554"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

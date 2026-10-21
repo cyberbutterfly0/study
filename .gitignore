@@ -1,0 +1,26 @@
+# 阅读版 HTML：由 .dsh/skills/study-tutor 的脚本生成，可随时重建，不入库
+总结/_阅读版/
+
+# 个人学习记录，含答题历史，只在本地留
+data/sync-state.json
+总结/_同步报告.md
+
+# 临时/暂存
+_tmp/
+总结/_暂存/
+_trash/
+
+# 本机环境配置
+.dsh/
+node_modules/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+._*
+*.log
+
+# 注意：app/data/library.json 和 app/data/questions.json 是**故意入库**的。
+# 手机端 PWA 直接从 GitHub 拉这两个文件（方案：内容以仓库为唯一真源），
+# 所以改完 总结/ 里的 md 之后要跑一次 `npm run build` 再提交。
