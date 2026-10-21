@@ -90,6 +90,7 @@ function parseFile(md, relPath) {
   let field = null;        // 当前可续行的字段
   let inTerms = false;
   let termHeader = 0;      // 0=还没见过表头 1=见过表头 2=见过分隔行
+  let curSection = '';     // 当前所在的 ### 小节标题，用来给题目归属
 
   const fail = (lineNo, msg) => errors.push(`${relPath}:${lineNo} ${msg}`);
 
@@ -106,6 +107,10 @@ function parseFile(md, relPath) {
     const lineNo = i + 1;
     const raw = lines[i];
     const line = raw.trim();
+
+    // 记住当前小节（题目归属用）。放在最前面，这样题块之后的 ### 也能被看到
+    const h3m = line.match(/^###\s+(.+?)\s*$/);
+    if (h3m) curSection = h3m[1];
 
     if (MARK_QUIZ.test(line)) {
       flush();
@@ -126,6 +131,7 @@ function parseFile(md, relPath) {
       cur = {
         no: Number(qm[1]),
         stem: qm[2].trim(),
+        section: curSection,
         options: [],
         answer: '',
         explain: '',
@@ -294,6 +300,7 @@ async function main() {
         return {
           id,
           no: q.no,
+          section: q.section || '',
           stem: q.stem,
           options: q.options,
           answer: q.answer,
@@ -307,10 +314,12 @@ async function main() {
         };
       });
       qs.sort((a, b) => a.no - b.no);
+      const sectionNames = [...new Set(qs.map((q) => q.section).filter(Boolean))];
       chapterObjs.push({
         id: `${subjectName}/${chapterName}`,
         name: chapterName,
         source: chapters.get(chapterName).file,
+        sections: sectionNames,
         questions: qs,
       });
     }

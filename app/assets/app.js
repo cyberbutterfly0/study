@@ -124,6 +124,18 @@ function chapterQuestions(chapterId) {
   return allQuestions().filter((x) => ids.includes(x.chapter.id));
 }
 
+/**
+ * 某个阅读小节对应的题目。
+ * 章节被拆成多节后，section.group 指向原来的章，题目靠 q.section（小节标题）对上。
+ * 没拆的普通页面就直接取整章。
+ */
+function sectionQuestions(section) {
+  if (!section) return [];
+  const items = chapterQuestions(section.group || section.id);
+  if (!section.group) return items;
+  return items.filter((x) => x.q.section === section.name);
+}
+
 function reviewQuestions() {
   const now = Date.now();
   return allQuestions().filter((x) => {
@@ -281,26 +293,52 @@ function viewSubject(subjectId) {
   const readMarks = state.readMarks || {};
   const readN = s.sections.filter((sec) => (readMarks[sec.id] || 0) >= 0.5).length;
 
-  const items = s.sections
-    .map((sec) => {
-      const qCount = (allQuestions().filter((x) => x.chapter.id === sec.id) || []).length;
-      const ratio = readMarks[sec.id] || 0;
-      const done = ratio >= 0.5;
-      const kindLabel = { chapter: '章节', appendix: '附录', overview: '总览', note: '笔记' }[sec.kind] || '';
-      const desc = [kindLabel, `${Math.round(sec.chars / 1000) || 1}k 字`, qCount ? `${qCount} 题` : ''].filter(Boolean).join(' · ');
-      const mark = done
-        ? ' · <span style="color:var(--green)">已读完</span>'
-        : ratio > 0.05
-          ? ` · <span style="color:var(--text-3)">读到 ${Math.round(ratio * 100)}%</span>`
-          : '';
-      return `<button class="list-item" data-act="nav" data-to="#/r/${encodeURIComponent(sec.id)}">
+  // 一章可能被拆成多节（小组），把同属一章的排在一起，外面套一个标题
+  const blocks = [];
+  for (const sec of s.sections) {
+    if (sec.group) {
+      let b = blocks[blocks.length - 1];
+      if (!b || b.type !== 'group' || b.id !== sec.group) {
+        b = { type: 'group', id: sec.group, name: sec.groupName || '', items: [] };
+        blocks.push(b);
+      }
+      b.items.push(sec);
+    } else {
+      let b = blocks[blocks.length - 1];
+      if (!b || b.type !== 'plain') {
+        b = { type: 'plain', items: [] };
+        blocks.push(b);
+      }
+      b.items.push(sec);
+    }
+  }
+
+  const renderItem = (sec) => {
+    const qCount = sectionQuestions(sec).length;
+    const ratio = readMarks[sec.id] || 0;
+    const done = ratio >= 0.5;
+    const kindLabel = { chapter: '章节', appendix: '附录', overview: '总览', note: '笔记' }[sec.kind] || '';
+    const desc = [kindLabel, `${Math.round(sec.chars / 1000) || 1}k 字`, qCount ? `${qCount} 题` : ''].filter(Boolean).join(' · ');
+    const mark = done
+      ? ' · <span style="color:var(--green)">已读完</span>'
+      : ratio > 0.05
+        ? ` · <span style="color:var(--text-3)">读到 ${Math.round(ratio * 100)}%</span>`
+        : '';
+    return `<button class="list-item" data-act="nav" data-to="#/r/${encodeURIComponent(sec.id)}">
         <span class="li-main">
           <span class="li-title">${esc(sec.name)}</span>
           <span class="li-desc">${esc(desc)}${mark}</span>
         </span>
         <span class="chev">›</span>
       </button>`;
-    })
+  };
+
+  const content = blocks
+    .map((b) =>
+      b.type === 'group'
+        ? `<div class="group-head">${esc(b.name)}</div><div class="card card-list">${b.items.map(renderItem).join('')}</div>`
+        : `<div class="card card-list">${b.items.map(renderItem).join('')}</div>`
+    )
     .join('');
 
   const totalQ = st.total;
@@ -321,7 +359,7 @@ function viewSubject(subjectId) {
     </div>
     ${quizBtns}
     <h2 class="section-title">内容</h2>
-    <div class="card card-list">${items}</div>
+    ${content}
   </div>${tabbar('study')}`;
 }
 
@@ -338,14 +376,14 @@ function viewRead(sectionId) {
     .map((h) => `<a href="javascript:void 0" data-act="jump" data-id="${h.id}">${esc(h.text)}</a>`)
     .join('');
 
-  const qCount = chapterQuestions(section.id).length;
+  const qCount = sectionQuestions(section).length;
 
   return `<div class="page reader" data-section="${esc(section.id)}">
     ${header({
       title: section.name,
       back: `#/s/${encodeURIComponent(hit.subject.id)}`,
       right: qCount
-        ? `<button class="btn btn-sm btn-primary" data-act="start-quiz" data-chapter="${esc(section.id)}">刷题</button>`
+        ? `<button class="btn btn-sm btn-primary" data-act="start-quiz" data-section="${esc(section.id)}">刷这节 ${qCount}</button>`
         : '',
     })}
     ${toc ? `<div class="toc"><div class="toc-inner">${toc}</div></div>` : ''}
@@ -362,6 +400,10 @@ function buildQuiz(hash, kind, arg) {
     items = chapterQuestions(arg);
     const hit = allQuestions().find((x) => x.chapter.id === arg);
     title = hit ? hit.chapter.name : '刷题';
+  } else if (kind === 's') {
+    const hit = findSection(arg);
+    items = hit ? sectionQuestions(hit.section) : [];
+    title = hit ? hit.section.name : '刷题';
   } else if (kind === 'review') {
     items = reviewQuestions();
     title = '今日复习';
@@ -443,7 +485,7 @@ function viewQuiz() {
     ${header({
       title: s.title,
       sub: `${s.idx + 1}/${s.qids.length}`,
-      back: kind === 'c' ? `#/s/${encodeURIComponent(chapter.id.split('/')[0])}` : '#/study',
+      back: kind === 'c' || kind === 's' ? `#/s/${encodeURIComponent(chapter.id.split('/')[0])}` : '#/study',
     })}
     <div class="quiz-shell">
       <div class="quiz-progress">
@@ -1004,7 +1046,8 @@ document.addEventListener('click', async (e) => {
     }
 
     case 'start-quiz':
-      nav(`#/quiz/c/${encodeURIComponent(el.dataset.chapter)}`);
+      if (el.dataset.section) nav(`#/quiz/s/${encodeURIComponent(el.dataset.section)}`);
+      else nav(`#/quiz/c/${encodeURIComponent(el.dataset.chapter)}`);
       break;
 
     case 'pick':

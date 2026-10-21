@@ -202,6 +202,19 @@ h2.section-title {
   letter-spacing: 0.02em;
 }
 
+/* 一章拆成多节后，组标题（章名）与它下面的小节卡片 */
+.group-head {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+  margin: 20px 0 8px;
+  padding-left: 2px;
+  letter-spacing: 0.02em;
+}
+.group-head + .card-list {
+  margin-top: 0;
+}
+
 p.muted,
 .muted {
   color: var(--text-3);

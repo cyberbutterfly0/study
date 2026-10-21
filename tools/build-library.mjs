@@ -124,6 +124,61 @@ function stripQuiz(md) {
   return out.join('\n');
 }
 
+/**
+ * 把一章按小节拆开，让阅读页一节一页，而不是三十多 K 字一屏。
+ * 规则：
+ *   - 文件头 + `## 本章目标` → 「概览」
+ *   - `## 小节` 下面的每个 `### X.Y` → 各自一节（标题就是小节名）
+ *   - `## 本章易错点` / `## 本章小结` → 合并成「易错点与小结」
+ * 只有拆出 3 节以上才真的拆，否则当普通单页处理。
+ */
+function splitChapterSections(md) {
+  const lines = md.split(/\r?\n/);
+  const out = [];
+  let cur = { name: '本章目标', buf: [] };
+  let inSections = false;
+  let inTail = false;
+
+  const push = () => {
+    const body = cur.buf.join('\n').trim();
+    if (body) out.push({ name: cur.name, md: body });
+  };
+
+  for (const line of lines) {
+    const h2 = line.match(/^##\s+(.+?)\s*$/);
+    const h3 = line.match(/^###\s+(.+?)\s*$/);
+
+    if (h2) {
+      const t = h2[1];
+      if (/^本章(易错点|小结)/.test(t)) {
+        if (!inTail) {
+          push();
+          cur = { name: '易错点与小结', buf: [] };
+          inTail = true;
+          inSections = false;
+        }
+        cur.buf.push(line);
+      } else if (/^小节$/.test(t)) {
+        inSections = true;          // 这个标题本身不输出，只是个分节开关
+      } else {
+        cur.buf.push(line);         // 本章目标之类留在「概览」里
+      }
+      continue;
+    }
+
+    if (inSections && h3) {
+      push();
+      // 小节标题不进正文（页面 header 已经显示），只留内容
+      cur = { name: h3[1], buf: [] };
+      continue;
+    }
+
+    cur.buf.push(line);
+  }
+  push();
+  return out;
+}
+
 function renderMarkdown(md) {
   const lines = md.split(/\r?\n/);
   const out = [];
@@ -327,8 +382,37 @@ async function main() {
     const chapterNo = baseName.match(/^第(\d+)章/);
     const isChapter = Boolean(chapterNo);
 
+    const baseId = relPath.replace(/^总结\//, '').replace(/\.md$/, '');
+
+    // 章节：按小节拆成多页，归到同一个分组里
+    if (isChapter) {
+      const parts = splitChapterSections(stripQuiz(md));
+      if (parts.length >= 3) {
+        const chapterOrder = Number(chapterNo[1]) * 100;
+        parts.forEach((p, i) => {
+          const r = renderMarkdown(p.md);
+          if (!r.html.trim()) return;
+          subjects.get(subjectName).push({
+            id: `${baseId}~s${i}`,
+            name: p.name,
+            file: baseName,
+            kind: 'chapter',
+            group: baseId,
+            groupName: title || baseName,
+            groupOrder: chapterOrder,
+            order: chapterOrder + i,
+            chars: p.md.length,
+            html: r.html,
+            headings: r.headings,
+          });
+          totalChars += p.md.length;
+        });
+        continue;
+      }
+    }
+
     subjects.get(subjectName).push({
-      id: relPath.replace(/^总结\//, '').replace(/\.md$/, ''),
+      id: baseId,
       name: AUX_TITLES[baseName] || title || baseName,
       file: baseName,
       kind: isOverview ? 'overview' : isAux ? 'appendix' : isChapter ? 'chapter' : 'note',
@@ -338,7 +422,7 @@ async function main() {
         : isAux
           ? 900 + Object.keys(AUX_TITLES).indexOf(baseName)
           : isChapter
-            ? Number(chapterNo[1])
+            ? Number(chapterNo[1]) * 100
             : 500,
       chars: md.length,
       html,
