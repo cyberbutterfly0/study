@@ -1161,7 +1161,24 @@ const APP_VERSION = '0.1.0';
  * 云端 generatedAt 更新就替换掉，用户不用重装 app 也能拿到新题新笔记。
  * 断网、被墙、仓库改名 —— 都只是拉不到，本地照常能用。
  */
-const REMOTE_DATA = 'https://raw.githubusercontent.com/cyberbutterfly0/study/main/app/data';
+/**
+ * 内容真源的候选地址，按顺序试：
+ *   1. GitHub Pages 的 data 目录 —— 和 app 同域，装 app 时已经能连通，最稳
+ *   2. raw.githubusercontent.com —— 绕过 Pages 的 CDN 缓存，国内可能被墙
+ */
+const REMOTE_SOURCES = [
+  'https://cyberbutterfly0.github.io/study/data',
+  'https://raw.githubusercontent.com/cyberbutterfly0/study/main/app/data',
+];
+
+/** 依次问每个源要同一个文件，谁先给就用谁 */
+async function fetchData(name) {
+  for (const base of REMOTE_SOURCES) {
+    const j = await fetchJSON(`${base}/${name}`);
+    if (j) return j;
+  }
+  return null;
+}
 
 async function fetchJSON(url, timeoutMs = 6000) {
   const ctl = new AbortController();
@@ -1190,10 +1207,7 @@ async function refreshFromCloud(manual = false) {
     if (manual) toast('现在没联网');
     return false;
   }
-  const [lib, qs] = await Promise.all([
-    fetchJSON(`${REMOTE_DATA}/library.json`),
-    fetchJSON(`${REMOTE_DATA}/questions.json`),
-  ]);
+  const [lib, qs] = await Promise.all([fetchData('library.json'), fetchData('questions.json')]);
 
   if (!lib && !qs) {
     if (manual) toast('连不上云端，仍用本地版本');
