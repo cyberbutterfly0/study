@@ -1022,6 +1022,11 @@ document.addEventListener('input', (e) => {
     autoGrow(t);
     updateSendState();
   }
+  if (t.id === 'cfg-key') {
+    // 边打边解锁，否则输入后直接点「测试连接」时按钮还是灰的
+    const btn = document.querySelector('[data-act="test-api"]');
+    if (btn) btn.disabled = !t.value.trim();
+  }
 });
 
 document.addEventListener('keydown', (e) => {
@@ -1036,7 +1041,12 @@ document.addEventListener('keydown', (e) => {
 // 配置项即时保存
 document.addEventListener('change', (e) => {
   const t = e.target;
-  if (t.id === 'cfg-key') state.settings = store.saveSettings({ apiKey: t.value.trim() });
+  if (t.id === 'cfg-key') {
+    state.settings = store.saveSettings({ apiKey: t.value.trim() });
+    // 只动按钮状态，整页重渲染会把已经失焦的输入框再打断一次
+    const btn = document.querySelector('[data-act="test-api"]');
+    if (btn) btn.disabled = !t.value.trim();
+  }
   if (t.id === 'cfg-model') state.settings = store.saveSettings({ model: t.value });
   if (t.id === 'cfg-base') state.settings = store.saveSettings({ baseUrl: t.value.trim() || 'https://api.deepseek.com' });
 });
