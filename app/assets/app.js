@@ -285,6 +285,40 @@ function viewStudy() {
 
 // ---------------------------------------------------------------- 学科详情
 
+function renderSectionItem(sec, readMarks) {
+  const qCount = sectionQuestions(sec).length;
+  const ratio = readMarks[sec.id] || 0;
+  const done = ratio >= 0.5;
+  const kindLabel = { chapter: '章节', appendix: '附录', overview: '总览', note: '笔记' }[sec.kind] || '';
+  const desc = [kindLabel, `${Math.round(sec.chars / 1000) || 1}k 字`, qCount ? `${qCount} 题` : ''].filter(Boolean).join(' · ');
+  const mark = done
+    ? ' · <span style="color:var(--green)">已读完</span>'
+    : ratio > 0.05
+      ? ` · <span style="color:var(--text-3)">读到 ${Math.round(ratio * 100)}%</span>`
+      : '';
+  return `<button class="list-item" data-act="nav" data-to="#/r/${encodeURIComponent(sec.id)}">
+      <span class="li-main">
+        <span class="li-title">${esc(sec.name)}</span>
+        <span class="li-desc">${esc(desc)}${mark}</span>
+      </span>
+      <span class="chev">›</span>
+    </button>`;
+}
+
+/** 一章的完成度统计（按这一章下的题目算） */
+function chapterStats(groupId) {
+  const qs = chapterQuestions(groupId);
+  let mastered = 0;
+  let wrong = 0;
+  for (const x of qs) {
+    const p = state.progress[x.q.id];
+    if (!p) continue;
+    if (p.status === 'mastered') mastered++;
+    if (p.status === 'wrong') wrong++;
+  }
+  return { total: qs.length, mastered, wrong };
+}
+
 function viewSubject(subjectId) {
   const s = (state.lib?.subjects || []).find((x) => x.id === subjectId);
   if (!s) return viewNotFound();
@@ -293,52 +327,43 @@ function viewSubject(subjectId) {
   const readMarks = state.readMarks || {};
   const readN = s.sections.filter((sec) => (readMarks[sec.id] || 0) >= 0.5).length;
 
-  // 一章可能被拆成多节（小组），把同属一章的排在一起，外面套一个标题
-  const blocks = [];
+  // 拆成小节的那些，学科页只列到「章」，点进去再看小节
+  const order = [];
+  const chapterNodes = new Map();
   for (const sec of s.sections) {
-    if (sec.group) {
-      let b = blocks[blocks.length - 1];
-      if (!b || b.type !== 'group' || b.id !== sec.group) {
-        b = { type: 'group', id: sec.group, name: sec.groupName || '', items: [] };
-        blocks.push(b);
-      }
-      b.items.push(sec);
-    } else {
-      let b = blocks[blocks.length - 1];
-      if (!b || b.type !== 'plain') {
-        b = { type: 'plain', items: [] };
-        blocks.push(b);
-      }
-      b.items.push(sec);
+    if (!sec.group) {
+      order.push({ type: 'sec', sec });
+      continue;
     }
+    if (!chapterNodes.has(sec.group)) {
+      const node = { type: 'chapter', id: sec.group, name: sec.groupName || '', sections: [] };
+      chapterNodes.set(sec.group, node);
+      order.push(node);
+    }
+    chapterNodes.get(sec.group).sections.push(sec);
   }
 
-  const renderItem = (sec) => {
-    const qCount = sectionQuestions(sec).length;
-    const ratio = readMarks[sec.id] || 0;
-    const done = ratio >= 0.5;
-    const kindLabel = { chapter: '章节', appendix: '附录', overview: '总览', note: '笔记' }[sec.kind] || '';
-    const desc = [kindLabel, `${Math.round(sec.chars / 1000) || 1}k 字`, qCount ? `${qCount} 题` : ''].filter(Boolean).join(' · ');
-    const mark = done
-      ? ' · <span style="color:var(--green)">已读完</span>'
-      : ratio > 0.05
-        ? ` · <span style="color:var(--text-3)">读到 ${Math.round(ratio * 100)}%</span>`
-        : '';
-    return `<button class="list-item" data-act="nav" data-to="#/r/${encodeURIComponent(sec.id)}">
+  const items = order
+    .map((node) => {
+      if (node.type === 'sec') return renderSectionItem(node.sec, readMarks);
+      const secs = node.sections;
+      const qCount = chapterQuestions(node.id).length;
+      const done = secs.filter((x) => (readMarks[x.id] || 0) >= 0.5).length;
+      const desc = [
+        `${secs.length} 节`,
+        qCount ? `${qCount} 题` : '',
+        done ? `已读 ${done}/${secs.length}` : '',
+      ]
+        .filter(Boolean)
+        .join(' · ');
+      return `<button class="list-item" data-act="nav" data-to="#/ch/${encodeURIComponent(node.id)}">
         <span class="li-main">
-          <span class="li-title">${esc(sec.name)}</span>
-          <span class="li-desc">${esc(desc)}${mark}</span>
+          <span class="li-title">${esc(node.name)}</span>
+          <span class="li-desc">${esc(desc)}</span>
         </span>
         <span class="chev">›</span>
       </button>`;
-  };
-
-  const content = blocks
-    .map((b) =>
-      b.type === 'group'
-        ? `<div class="group-head">${esc(b.name)}</div><div class="card card-list">${b.items.map(renderItem).join('')}</div>`
-        : `<div class="card card-list">${b.items.map(renderItem).join('')}</div>`
-    )
+    })
     .join('');
 
   const totalQ = st.total;
@@ -359,7 +384,50 @@ function viewSubject(subjectId) {
     </div>
     ${quizBtns}
     <h2 class="section-title">内容</h2>
-    ${content}
+    <div class="card card-list">${items}</div>
+  </div>${tabbar('study')}`;
+}
+
+// ---------------------------------------------------------------- 章（小节列表）
+
+function viewChapter(groupId) {
+  const secs = [];
+  let subject = null;
+  for (const s of state.lib?.subjects || []) {
+    for (const sec of s.sections) {
+      if (sec.group === groupId) {
+        secs.push(sec);
+        subject = s;
+      }
+    }
+  }
+  if (!secs.length || !subject) return viewNotFound();
+
+  const readMarks = state.readMarks || {};
+  const name = secs[0].groupName || '';
+  const readN = secs.filter((sec) => (readMarks[sec.id] || 0) >= 0.5).length;
+  const st = chapterStats(groupId);
+
+  const items = secs.map((sec) => renderSectionItem(sec, readMarks)).join('');
+
+  const quizBtn = st.total
+    ? `<div class="btn-row">
+        <button class="btn btn-primary" data-act="start-quiz" data-chapter="${esc(groupId)}">
+          刷这一章 <span class="badge brand" style="background:rgba(255,255,255,.2);color:#fff">${st.total}</span>
+        </button>
+      </div>`
+    : '';
+
+  return `<div class="page">
+    ${header({ title: name, back: `#/s/${encodeURIComponent(subject.id)}` })}
+    <div class="stats" style="margin-bottom:8px">
+      <div class="stat"><b>${readN}<i style="font-style:normal;font-size:15px;color:var(--text-3);font-weight:400">/${secs.length}</i></b><span>已读</span></div>
+      <div class="stat accent"><b>${st.mastered}</b><span>已掌握</span></div>
+      <div class="stat warn"><b>${st.wrong}</b><span>错题</span></div>
+    </div>
+    ${quizBtn}
+    <h2 class="section-title">小节</h2>
+    <div class="card card-list">${items}</div>
   </div>${tabbar('study')}`;
 }
 
@@ -381,7 +449,7 @@ function viewRead(sectionId) {
   return `<div class="page reader" data-section="${esc(section.id)}">
     ${header({
       title: section.name,
-      back: `#/s/${encodeURIComponent(hit.subject.id)}`,
+      back: section.group ? `#/ch/${encodeURIComponent(section.group)}` : `#/s/${encodeURIComponent(hit.subject.id)}`,
       right: qCount
         ? `<button class="btn btn-sm btn-primary" data-act="start-quiz" data-section="${esc(section.id)}">刷这节 ${qCount}</button>`
         : '',
@@ -691,7 +759,7 @@ function render() {
   let html;
 
   // 学习区的页面记一笔，切 tab 回来能接着看
-  if (['study', 's', 'r', 'quiz'].includes(r.name)) {
+  if (['study', 's', 'ch', 'r', 'quiz'].includes(r.name)) {
     state.lastStudyHash = location.hash;
     saveLastStudy(location.hash);
   }
@@ -699,6 +767,9 @@ function render() {
   switch (r.name) {
     case 's':
       html = viewSubject(r.args[0] || '');
+      break;
+    case 'ch':
+      html = viewChapter(r.args[0] || '');
       break;
     case 'r':
       html = viewRead(r.args[0] || '');
