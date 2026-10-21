@@ -84,6 +84,46 @@ function splitRow(line) {
  * Markdown → HTML 片段。
  * 返回 { html, title, headings }，headings 用于章节内锚点导航。
  */
+/**
+ * 阅读版不展示选择题——题目和答案都带「判定」，直接读会剧透。
+ * 把「**选择题**」到下一个章节标记之间整段摘掉，换成一句提示。
+ */
+function stripQuiz(md) {
+  const lines = md.split(/\r?\n/);
+  const out = [];
+  const END = /^(?:#{1,6}\s|\*\*(?:答题记录|实践任务|本章易错点|本章小结)\*\*)/;
+  let inQuiz = false;
+  let count = 0;
+
+  const tip = () => {
+    out.push('');
+    out.push(`> 本节有 ${count} 道选择题，点右上角「刷题」练习（阅读页不显示答案）。`);
+    out.push('');
+  };
+
+  for (const raw of lines) {
+    const t = raw.trim();
+    if (/^\*\*选择题\*\*\s*$/.test(t)) {
+      inQuiz = true;
+      count = 0;
+      continue;
+    }
+    if (inQuiz) {
+      if (END.test(t)) {
+        inQuiz = false;
+        tip();
+        if (t) out.push(raw);
+        continue;
+      }
+      if (/^\d+\.\s/.test(t)) count++;
+      continue;
+    }
+    out.push(raw);
+  }
+  if (inQuiz) tip();
+  return out.join('\n');
+}
+
 function renderMarkdown(md) {
   const lines = md.split(/\r?\n/);
   const out = [];
@@ -276,7 +316,7 @@ async function main() {
     if (/^(INDEX|README)$/i.test(baseName)) continue;
 
     const md = await readFile(file, 'utf8');
-    const { html, title, headings } = renderMarkdown(md);
+    const { html, title, headings } = renderMarkdown(stripQuiz(md));
     if (!html.trim()) continue;
 
     const subjectName = relInSrc.length > 1 ? relInSrc[0] : '其他';
