@@ -85,11 +85,29 @@ node tools/serve.mjs
 
 `答案`、`判定`、`踩坑场景`、`术语` 都可以省，但省了判题时就只有对错没有解释。
 
+## 手机上装
+
+**Android（Chrome / Edge）**：打开 <https://cyberbutterfly0.github.io/study/> → 右上角 ⋮ → 「添加到主屏幕」/「安装应用」。
+
+**iOS**：Safari 打开同一地址 → 分享按钮 → 「添加到主屏幕」。
+
+装完桌面会有个蓝色书本图标，点开是全屏无地址栏的独立窗口。第一次打开要联网（下载约 200 KB），之后断网也能看笔记、刷题。
+
 ## 部署
 
-**GitHub Pages**：`.github/workflows/deploy.yml` 在每次 push 后把 `app/` 发布出去。仓库 Settings → Pages → Source 选 GitHub Actions。
+**GitHub Pages**：`.github/workflows/deploy.yml` 在每次 push 后重新构建并把 `app/` 发布出去。仓库 Settings → Pages → Source 选 GitHub Actions。已生效：<https://cyberbutterfly0.github.io/study/>
 
-**Cloudflare Pages**：接同一个仓库，构建命令留空，输出目录填 `app`。
+**Cloudflare Pages**（可选的第二个入口，`*.github.io` 在某些网络下打不开时用）：
+
+1. 打开 <https://dash.cloudflare.com/> → **Workers 和 Pages** → **创建** → **Pages** → **连接到 Git**
+2. 授权 GitHub，选中 `cyberbutterfly0/study` 仓库
+3. 构建设置：
+   - 框架预设：**无**
+   - 构建命令：**留空**（`app/data/*.json` 已经是构建好的，直接发布就行）
+   - 构建输出目录：`app`
+4. 保存并部署，拿到 `https://study-xxxx.pages.dev`
+
+以后每次 push，两个平台各自重新发布。
 
 ## 已知限制
 
