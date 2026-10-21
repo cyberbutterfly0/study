@@ -544,6 +544,13 @@ function viewSettings() {
 
     <h2 class="section-title">数据</h2>
     <div class="card card-list">
+      <button class="list-item" data-act="refresh-cloud">
+        <span class="li-main">
+          <span class="li-title">检查内容更新</span>
+          <span class="li-desc">联网拉一次题库和笔记，有新版就换掉</span>
+        </span>
+        <span class="chev">›</span>
+      </button>
       <button class="list-item" data-act="sync">
         <span class="li-main">
           <span class="li-title">同步到电脑</span>
@@ -995,6 +1002,11 @@ document.addEventListener('click', async (e) => {
       await syncToDesktop();
       break;
 
+    case 'refresh-cloud':
+      toast('正在检查…', 1200);
+      await refreshFromCloud(true);
+      break;
+
     case 'reset':
       await resetAll();
       break;
@@ -1085,12 +1097,20 @@ function isNewer(remote, local) {
   return a > b;
 }
 
-async function refreshFromCloud() {
-  if (!navigator.onLine) return;
+async function refreshFromCloud(manual = false) {
+  if (!navigator.onLine) {
+    if (manual) toast('现在没联网');
+    return false;
+  }
   const [lib, qs] = await Promise.all([
     fetchJSON(`${REMOTE_DATA}/library.json`),
     fetchJSON(`${REMOTE_DATA}/questions.json`),
   ]);
+
+  if (!lib && !qs) {
+    if (manual) toast('连不上云端，仍用本地版本');
+    return false;
+  }
 
   let changed = false;
   if (isNewer(lib, state.lib)) {
@@ -1106,7 +1126,10 @@ async function refreshFromCloud() {
     state.dataSource = 'cloud';
     render();
     toast('内容已更新', 1800);
+  } else if (manual) {
+    toast('已经是最新的');
   }
+  return true;
 }
 
 window.addEventListener('hashchange', () => {
