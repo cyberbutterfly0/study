@@ -433,10 +433,66 @@ function viewChapter(groupId) {
 
 // ---------------------------------------------------------------- 阅读页
 
+/** 阅读页右下角的「术语速查」入口 */
+function glossaryFab(terms) {
+  if (!terms || !terms.length) return '';
+  return `<button class="gloss-fab" data-act="gloss-open">术语 <b>${terms.length}</b></button>`;
+}
+
+/** 底部抽屉：本页涉及的全部术语，可搜索 */
+function glossarySheet(title, terms) {
+  if (!terms || !terms.length) return '';
+  const items = terms
+    .map((t) => {
+      const text = `${t.term} ${t.plain || ''} ${t.meaning || ''}`.toLowerCase();
+      return `<div class="gloss-item" data-text="${esc(text)}">
+          <b>${esc(t.term)}</b>
+          <span>${esc(t.plain || t.meaning || '')}</span>
+          ${t.meaning && t.meaning !== t.plain ? `<em>${esc(t.meaning)}</em>` : ''}
+        </div>`;
+    })
+    .join('');
+  return `<div class="gloss-wrap" id="gloss-wrap">
+    <div class="gloss-mask" data-act="gloss-close"></div>
+    <div class="gloss-sheet">
+      <div class="gloss-head">
+        <b>术语速查</b>
+        <span class="muted">${esc(title)} · ${terms.length} 条</span>
+        <button class="icon-btn" data-act="gloss-close" aria-label="关闭">✕</button>
+      </div>
+      <input class="input gloss-q" id="gloss-q" type="search" placeholder="搜术语或解释…" autocomplete="off">
+      <div class="gloss-body" id="gloss-body">
+        ${items}
+        <div class="gloss-empty" id="gloss-empty" hidden>没有匹配的术语</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/** 抽屉打开后绑定搜索（render 会重建 DOM，所以每次渲染后调） */
+function bindGlossary() {
+  const q = document.getElementById('gloss-q');
+  if (!q) return;
+  const box = document.getElementById('gloss-body');
+  const empty = document.getElementById('gloss-empty');
+  const items = box ? [...box.querySelectorAll('.gloss-item')] : [];
+  q.addEventListener('input', () => {
+    const kw = q.value.trim().toLowerCase();
+    let shown = 0;
+    for (const el of items) {
+      const hit = !kw || (el.dataset.text || '').includes(kw);
+      el.hidden = !hit;
+      if (hit) shown++;
+    }
+    if (empty) empty.hidden = shown > 0;
+  });
+}
+
 function viewRead(sectionId) {
   const hit = findSection(sectionId);
   if (!hit) return viewNotFound();
   const { section } = hit;
+  const terms = section.terms || [];
 
   const toc = (section.headings || [])
     .filter((h) => h.level === 2)
@@ -456,6 +512,8 @@ function viewRead(sectionId) {
     })}
     ${toc ? `<div class="toc"><div class="toc-inner">${toc}</div></div>` : ''}
     <article class="prose">${section.html}</article>
+    ${glossaryFab(terms)}
+    ${glossarySheet(section.name, terms)}
   </div>${tabbar('study')}`;
 }
 
@@ -807,6 +865,7 @@ function afterRender(r) {
 
   if (r.name === 'r') {
     observeRead();
+    bindGlossary();
   }
 }
 
@@ -1115,6 +1174,14 @@ document.addEventListener('click', async (e) => {
       }
       break;
     }
+
+    case 'gloss-open':
+      document.getElementById('gloss-wrap')?.classList.add('open');
+      break;
+
+    case 'gloss-close':
+      document.getElementById('gloss-wrap')?.classList.remove('open');
+      break;
 
     case 'start-quiz':
       if (el.dataset.section) nav(`#/quiz/s/${encodeURIComponent(el.dataset.section)}`);

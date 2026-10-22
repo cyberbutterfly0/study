@@ -42,7 +42,17 @@ function esc(s) {
 
 /** 行内元素渲染。先转义，再按固定顺序替换，避免互相污染。 */
 function inline(text) {
-  let s = esc(text);
+  // 少数几个白名单 HTML 标签原样放行（<br>、<details>/<summary> 折叠块），先占位防被 esc 掉
+  const KEEP = [];
+  const keep = (html) => {
+    KEEP.push(html);
+    return `\u0000K${KEEP.length - 1}\u0000`;
+  };
+  let s = String(text)
+    .replace(/<br\s*\/?>/gi, () => keep('<br>'))
+    .replace(/<\/?(?:details|summary)\b[^>]*>/gi, (m) => keep(m));
+
+  s = esc(s);
 
   // 行内代码优先占位，避免里面的 * _ [ 被当成标记
   const codes = [];
@@ -66,6 +76,7 @@ function inline(text) {
   s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
 
   s = s.replace(/\u0000C(\d+)\u0000/g, (_, i) => `<code>${codes[Number(i)]}</code>`);
+  s = s.replace(/\u0000K(\d+)\u0000/g, (_, i) => KEEP[Number(i)]);
   return s;
 }
 
@@ -351,6 +362,129 @@ function fmtSize(n) {
   return n > 1024 * 1024 ? (n / 1024 / 1024).toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB';
 }
 
+// ---------------------------------------------------------------- 术语标注
+
+/** 解析 术语表.md：## 分类 下的三列表 → [{term, meaning, plain, cat}] */
+function parseGlossary(md) {
+  const terms = [];
+  let cat = '';
+  for (const raw of md.split(/\r?\n/)) {
+    const line = raw.trim();
+    const h2 = line.match(/^##\s+(.+)/);
+    if (h2) {
+      cat = h2[1].trim();
+      continue;
+    }
+    if (!line.startsWith('|')) continue;
+    const cells = line.split('|').map((c) => c.trim());
+    // | 术语 | 含义 | 通俗解释 |  →  ['', 术语, 含义, 通俗解释, '']
+    if (cells.length < 5) continue;
+    const term = cells[1];
+    if (!term || term === '术语' || /^:?-{2,}/.test(term) || /^:?-{2,}/.test(cells[2])) continue;
+    terms.push({
+      term: term.replace(/`/g, ''),
+      meaning: cells[2].replace(/`/g, ''),
+      plain: (cells[3] || cells[2]).replace(/`/g, ''),
+      cat,
+    });
+  }
+  return terms;
+}
+
+/** 一个术语可以被哪些写法命中（去掉括号注释，拆开「A / B」这种别名） */
+function termKeys(t) {
+  const base = String(t.term).replace(/（[^）]*）/g, '').trim();
+  const keys = new Set([base]);
+  for (const part of base.split(/\s*\/\s*/)) {
+    const p = part.trim();
+    if (p.length >= 2) keys.add(p);
+  }
+  return [...keys].filter((k) => k.length >= 2);
+}
+
+function plainTextOf(html) {
+  return html
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+}
+
+function renderTermBlock(list) {
+  const items = list
+    .map(
+      (t) =>
+        `<div class="ti-item"><b>${esc(t.term)}</b><span>${esc(t.plain || t.meaning)}</span></div>`
+    )
+    .join('');
+  return `<section class="term-inline"><div class="ti-head">本小节术语</div>${items}</section>`;
+}
+
+/**
+ * 在每个 <h2> 小节末尾插一段「本小节术语」，并返回整页涉及到的术语（去重）给底部速查用。
+ * 没有 <h2> 的页面只在正文里扫一遍，不插块。
+ */
+function annotateTerms(html, terms) {
+  if (!terms.length) return { html, used: [] };
+
+  const marks = [...html.matchAll(/<h2[^>]*>[\s\S]*?<\/h2>/g)];
+  const used = new Map();
+
+  if (!marks.length) {
+    // 没有 ## 小节的页面（如拆出来的单节正文），就在文末挂一个整页术语块
+    const text = plainTextOf(html);
+    const hits = [];
+    for (const t of terms) {
+      const pos = Math.min(
+        ...termKeys(t)
+          .map((k) => text.indexOf(k))
+          .filter((p) => p >= 0)
+      );
+      if (Number.isFinite(pos)) hits.push({ t, pos });
+    }
+    hits.sort((a, b) => a.pos - b.pos);
+    for (const t of terms) {
+      if (hits.some((h) => h.t === t)) used.set(t.term, t);
+    }
+    const picked = hits.slice(0, 10).map((h) => h.t);
+    return {
+      html: picked.length ? html + renderTermBlock(picked) : html,
+      used: [...used.values()],
+    };
+  }
+
+  let out = html.slice(0, marks[0].index);
+  for (let i = 0; i < marks.length; i++) {
+    const start = marks[i].index;
+    const headEnd = start + marks[i][0].length;
+    const end = i + 1 < marks.length ? marks[i + 1].index : html.length;
+    const body = html.slice(headEnd, end);
+    const text = plainTextOf(body);
+
+    const hits = [];
+    for (const t of terms) {
+      const pos = Math.min(
+        ...termKeys(t)
+          .map((k) => text.indexOf(k))
+          .filter((p) => p >= 0)
+      );
+      if (Number.isFinite(pos)) hits.push({ t, pos });
+    }
+    hits.sort((a, b) => a.pos - b.pos);
+
+    const picked = hits.slice(0, 8).map((h) => h.t);
+    out += html.slice(start, headEnd) + body;
+    if (picked.length) {
+      for (const t of picked) used.set(t.term, t);
+      out += renderTermBlock(picked);
+    }
+  }
+  return { html: out, used: [...used.values()] };
+}
+
 async function main() {
   const files = await walk(SRC_DIR);
   if (!files.length) {
@@ -362,6 +496,18 @@ async function main() {
   const subjects = new Map();   // 学科 → 章节[]
   let totalChars = 0;
 
+  // 先全部读进来：术语表要给同学科的其他页面做标注，得先拿到
+  const mdCache = new Map();
+  for (const f of files) mdCache.set(f, await readFile(f, 'utf8'));
+
+  const glossaryBySubject = new Map();
+  for (const f of files) {
+    if (path.basename(f, '.md') !== '术语表') continue;
+    const relInSrc = path.relative(SRC_DIR, f).split(path.sep);
+    const subj = relInSrc.length > 1 ? relInSrc[0] : '其他';
+    glossaryBySubject.set(subj, parseGlossary(mdCache.get(f)));
+  }
+
   for (const file of files) {
     const relPath = path.relative(ROOT, file).split(path.sep).join('/');
     const relInSrc = path.relative(SRC_DIR, file).split(path.sep);
@@ -370,7 +516,7 @@ async function main() {
     // 跳过索引类文件
     if (/^(INDEX|README)$/i.test(baseName)) continue;
 
-    const md = await readFile(file, 'utf8');
+    const md = mdCache.get(file);
     const { html, title, headings } = renderMarkdown(stripQuiz(md));
     if (!html.trim()) continue;
 
@@ -392,6 +538,7 @@ async function main() {
         parts.forEach((p, i) => {
           const r = renderMarkdown(p.md);
           if (!r.html.trim()) return;
+          const ann = annotateTerms(r.html, glossaryBySubject.get(subjectName) || []);
           subjects.get(subjectName).push({
             id: `${baseId}~s${i}`,
             name: p.name,
@@ -402,7 +549,8 @@ async function main() {
             groupOrder: chapterOrder,
             order: chapterOrder + i,
             chars: p.md.length,
-            html: r.html,
+            html: ann.html,
+            terms: ann.used,
             headings: r.headings,
           });
           totalChars += p.md.length;
@@ -410,6 +558,9 @@ async function main() {
         continue;
       }
     }
+
+    const ann =
+      baseName === '术语表' ? { html, used: [] } : annotateTerms(html, glossaryBySubject.get(subjectName) || []);
 
     subjects.get(subjectName).push({
       id: baseId,
@@ -425,7 +576,8 @@ async function main() {
             ? Number(chapterNo[1]) * 100
             : 500,
       chars: md.length,
-      html,
+      html: ann.html,
+      terms: ann.used,
       headings,
     });
     totalChars += md.length;
