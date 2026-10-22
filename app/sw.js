@@ -9,7 +9,7 @@
  * 改了这个文件里的 CACHE 版本号，旧缓存会在下次激活时清掉。
  */
 
-const VERSION = 'v2';
+const VERSION = 'v3';
 const CACHE = `study-app-${VERSION}`;
 
 const PRECACHE = [
@@ -62,13 +62,23 @@ self.addEventListener('fetch', (event) => {
   // 页面导航
   if (req.mode === 'navigate') {
     event.respondWith(
-      fetch(req)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put('./index.html', copy)).catch(() => {});
+      (async () => {
+        try {
+          const res = await fetch(req);
+          // 只缓存正常的 HTML；把 404/500 当成 app 外壳存下去，会让人一开就卡在错误页
+          if (res && res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put('./index.html', copy)).catch(() => {});
+            return res;
+          }
+          const cached = await caches.match('./index.html');
+          if (cached) return cached;
           return res;
-        })
-        .catch(() => caches.match('./index.html').then((r) => r || caches.match('./')))
+        } catch {
+          const cached = (await caches.match('./index.html')) || (await caches.match('./'));
+          return cached || Response.error();
+        }
+      })()
     );
     return;
   }

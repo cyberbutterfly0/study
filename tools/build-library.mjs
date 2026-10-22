@@ -608,6 +608,13 @@ async function main() {
   for (const s of subjectList) {
     console.log(`  ${s.name}：` + s.sections.map((x) => `${x.name}(${Math.round(x.chars / 1000)}k字)`).join('，'));
   }
+
+  // 404 兜底页：地址写错/带多余路径时，别让用户看到 GitHub 的 404，直接进 app
+  // base 用绝对路径，因为这个页面可能被挂在任意深度上
+  const indexHtml = await readFile(path.join(ROOT, 'app', 'index.html'), 'utf8');
+  const notFound = indexHtml.replace('<head>', '<head>\n  <base href="/study/">');
+  await writeFile(path.join(ROOT, 'app', '404.html'), notFound, 'utf8');
+  console.log('✓ 生成 404 兜底页 → app/404.html');
 }
 
 main().catch((e) => {
