@@ -8,7 +8,9 @@
     "build": "node tools/build-library.mjs && node tools/build-questions.mjs && node tools/make-icons.mjs",
     "build:content": "node tools/build-library.mjs && node tools/build-questions.mjs",
     "serve": "node tools/serve.mjs",
-    "sync": "node tools/sync-in.mjs"
+    "sync": "node tools/sync-in.mjs",
+    "sync:auto": "node tools/auto-sync.mjs",
+    "sync:list": "node tools/auto-sync.mjs --list"
   },
   "engines": {
     "node": ">=18"
