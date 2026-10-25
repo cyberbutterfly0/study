@@ -27,3 +27,6 @@ desktop.ini
 # 所以改完 总结/ 里的 md 之后要跑一次 `npm run build` 再提交。
 
 data/synced-files.json
+
+# archify 中间产物（图已复制到 总结/ 里）
+.archify/

@@ -19,6 +19,10 @@
 | 第 6 章 | 网关与 Feign | 请求怎么进网关、服务间怎么调 |
 | 第 7 章 | 已知坑 | 踩之前先看一眼 |
 
+## 架构图
+
+[zhiwei-cloud-架构图.html](zhiwei-cloud-架构图.html) —— 一张图把「工程结构 → 运行时服务 → 数据与注册中心」串起来，双击用浏览器打开，可悬停看连线。
+
 ## 项目现状
 
 骨架阶段：框架层、网关、system、infra 有真代码；pay、member、booking、wx、mall 只有目录和 pom，Java 文件还是 IDEA 生成的 `Main.java`。
