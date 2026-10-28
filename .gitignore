@@ -3,6 +3,7 @@
 
 # 个人学习记录，含答题历史，只在本地留
 data/sync-state.json
+data/codes.json
 总结/_同步报告.md
 总结/_提问记录.md
 

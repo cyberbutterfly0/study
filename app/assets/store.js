@@ -9,10 +9,11 @@
  */
 
 const DB_NAME = 'study-app';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_PROGRESS = 'progress';   // keyPath: qid
 const STORE_LOG = 'log';             // keyPath: id（自增）
 const STORE_KV = 'kv';               // keyPath: k
+const STORE_CODE = 'code';           // keyPath: qid（编程题草稿与判定结果）
 
 let dbPromise = null;
 
@@ -35,6 +36,9 @@ function openDB() {
       }
       if (!db.objectStoreNames.contains(STORE_KV)) {
         db.createObjectStore(STORE_KV, { keyPath: 'k' });
+      }
+      if (!db.objectStoreNames.contains(STORE_CODE)) {
+        db.createObjectStore(STORE_CODE, { keyPath: 'qid' });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -221,14 +225,41 @@ export async function markRead(sectionId, ratio) {
   return map;
 }
 
+// ---------------------------------------------------------------- 编程题草稿
+
+/**
+ * 编程题草稿。一条记录对应一道题：
+ *   { qid, lang, code, updatedAt, verdictAt, verdict }
+ * verdict 是最近一次 AI 判定的原文（Markdown），同步时一起带走。
+ */
+export function getCode(qid) {
+  return getOne(STORE_CODE, qid);
+}
+
+export function allCodes() {
+  return getAll(STORE_CODE);
+}
+
+export async function saveCode(qid, patch) {
+  const prev = (await getCode(qid)) || { qid, code: '', updatedAt: 0 };
+  const next = { ...prev, ...patch, qid, updatedAt: Date.now() };
+  await putOne(STORE_CODE, next);
+  return next;
+}
+
+export function clearCode(qid) {
+  return delOne(STORE_CODE, qid);
+}
+
 // ---------------------------------------------------------------- 导入导出
 
 export async function exportAll() {
-  const [progress, log, messages, readMarks] = await Promise.all([
+  const [progress, log, messages, readMarks, codes] = await Promise.all([
     allProgress(),
     getLog(),
     getChat(),
     getReadMarks(),
+    allCodes(),
   ]);
   const s = getSettings();
   return {
@@ -245,6 +276,7 @@ export async function exportAll() {
     log,
     chat: messages,
     readMarks,
+    codes,
   };
 }
 
@@ -295,11 +327,27 @@ export async function importAll(data) {
     if (changed) await putOne(STORE_KV, { k: READ_KEY, map });
   }
 
+  // 编程题草稿：按 updatedAt 取新的；判定结果本地没有时补上
+  for (const c of data.codes || []) {
+    if (!c || !c.qid) continue;
+    const cur = await getCode(c.qid);
+    if (!cur || (c.updatedAt || 0) > (cur.updatedAt || 0)) {
+      await putOne(STORE_CODE, { ...cur, ...c, qid: c.qid });
+    } else if (!cur.verdict && c.verdict) {
+      await putOne(STORE_CODE, { ...cur, verdict: c.verdict, verdictAt: c.verdictAt || 0 });
+    }
+  }
+
   return { imported, skipped };
 }
 
 export async function resetAll() {
-  await Promise.all([clearStore(STORE_PROGRESS), clearStore(STORE_LOG), clearStore(STORE_KV)]);
+  await Promise.all([
+    clearStore(STORE_PROGRESS),
+    clearStore(STORE_LOG),
+    clearStore(STORE_KV),
+    clearStore(STORE_CODE),
+  ]);
 }
 
 // ---------------------------------------------------------------- 统计辅助

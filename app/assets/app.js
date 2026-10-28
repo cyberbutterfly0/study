@@ -36,10 +36,12 @@ const state = {
   lib: null,
   qs: null,
   progress: {},
+  codes: {},           // qid → { qid, lang, code, updatedAt, verdict, verdictAt }
   settings: store.getSettings(),
   chat: [],
   quiz: null,          // { hash, qids, idx, picks, correct }
   sending: false,
+  judging: false,
   abortCtl: null,
   readToc: false,
   dataSource: 'local',   // local = 打包进来的副本；cloud = 启动后从 GitHub 拉到更新的
@@ -566,6 +568,8 @@ function viewQuiz() {
     return viewQuizResult(s);
   }
   const { q, chapter } = cur;
+  const isCode = q.type === 'code';
+  const codeDraft = isCode ? state.codes[q.id] || {} : null;
   const pick = s.picks[q.id];
   const answered = pick !== undefined;
   const p = state.progress[q.id];
@@ -627,17 +631,50 @@ function viewQuiz() {
       </div>
 
       <h2 class="q-stem">${esc(q.stem)}</h2>
-      <div class="options">${options}</div>
-      ${verdict}
+      ${isCode ? codeCard(q, codeDraft) : `<div class="options">${options}</div>${verdict}`}
     </div>
     <div class="quiz-footer">
       ${
-        answered
+        isCode
+          ? `<div class="btn-row code-actions">
+              <button class="btn btn-ghost" data-act="skip">跳过</button>
+              <button class="btn" data-act="judge-code" data-qid="${esc(q.id)}">AI 判定</button>
+              <button class="btn btn-primary" data-act="next">${last ? '完成' : '下一题'}</button>
+            </div>`
+          : answered
           ? `<button class="btn btn-primary btn-block" data-act="next">${last ? '完成' : '下一题'}</button>`
           : `<button class="btn btn-block btn-ghost" data-act="skip">跳过这题</button>`
       }
     </div>
   </div>`;   // 答题时隐藏底部 tabbar：底部空间留给「下一题」，避免两个栏互相挡
+}
+
+/** 编程题的输入区 + 判定结果（做选择题时不出现） */
+function codeCard(q, draft) {
+  const hint = q.hint
+    ? `<details class="code-fold"><summary>提示</summary><p>${esc(q.hint)}</p></details>`
+    : '';
+  const ref = q.reference
+    ? `<details class="code-fold"><summary>参考解法（先自己写，判定后再看）</summary><pre class="code-ref">${esc(q.reference)}</pre></details>`
+    : '';
+  const pitfall = q.pitfall ? `<div class="pitfall"><b>踩坑场景</b>${esc(q.pitfall)}</div>` : '';
+  const verdict = draft && draft.verdict ? renderMarkdown(draft.verdict) : '';
+
+  return `<div class="code-block">
+    <div class="code-meta">
+      <span class="badge">${esc(q.language || '代码')}</span>
+      <span class="muted">草稿自动存本机 · Ctrl+Enter 提交判定</span>
+    </div>
+    <textarea id="code-input" class="code-editor" data-qid="${esc(q.id)}" spellcheck="false"
+      placeholder="在这里写 ${esc(q.language || '')} 代码…">${esc((draft && draft.code) || '')}</textarea>
+    <div class="code-judge-head"><span class="lbl">AI 判定</span>${
+      verdict ? '' : '<span class="muted">点底部「AI 判定」让 AI 对照标准批改</span>'
+    }</div>
+    <div id="judge-result" class="judge-box">${verdict}</div>
+    ${pitfall}
+    ${hint}
+    ${ref}
+  </div>`;
 }
 
 function viewQuizResult(s) {
@@ -946,6 +983,98 @@ async function pickOption(key) {
   render();
 }
 
+// ---------------------------------------------------------------- 编程题
+
+let codeSaveTimer = null;
+
+/** 输入即存：防抖 600ms，避免每敲一个字都写 IndexedDB */
+function queueCodeSave(el) {
+  clearTimeout(codeSaveTimer);
+  codeSaveTimer = setTimeout(async () => {
+    const qid = el.dataset.qid;
+    if (!qid) return;
+    const hit = questionById(qid);
+    state.codes[qid] = await store.saveCode(qid, { code: el.value, lang: hit?.q.language || '' });
+  }, 600);
+}
+
+async function judgeCode(qid) {
+  const hit = questionById(qid);
+  if (!hit) return;
+  const { q } = hit;
+  const input = document.getElementById('code-input');
+  const code = (input?.value || '').trim();
+  if (!code) {
+    toast('先写点代码再判定');
+    return;
+  }
+  if (!state.settings.apiKey) {
+    toast('还没填 API Key，先去「配置」页填上');
+    return;
+  }
+  if (state.judging) {
+    toast('上一次判定还没结束');
+    return;
+  }
+
+  state.judging = true;
+  const box = document.getElementById('judge-result');
+  if (box) box.innerHTML = '<div class="muted">AI 正在看你的代码…</div>';
+  await store.saveCode(qid, { lang: q.language || '', code });
+
+  let text = '';
+  try {
+    await streamChat({
+      messages: [
+        {
+          role: 'system',
+          content: '你是一位严谨的编程作业批改老师。严格按用户给出的判定标准批改，不跑题、不恭维，结论必须明确。',
+        },
+        { role: 'user', content: buildJudgePrompt(q, code) },
+      ],
+      settings: state.settings,
+      onDelta: (d) => {
+        text += d;
+        if (box) box.innerHTML = renderMarkdown(text) + '<span class="typing"></span>';
+      },
+      onReasoning: () => {
+        if (!text && box) box.innerHTML = '<div class="muted">思考中…</div>';
+      },
+    });
+  } catch (e) {
+    text = `⚠️ 判定失败：${e.message}`;
+  }
+  state.judging = false;
+  await store.saveCode(qid, { verdict: text, verdictAt: Date.now() });
+  state.codes[qid] = await store.getCode(qid);
+  if (box) box.innerHTML = renderMarkdown(text);
+}
+
+function buildJudgePrompt(q, code) {
+  const lang = String(q.language || '').toLowerCase();
+  const fence = /c\+\+|cpp/.test(lang) ? 'cpp' : /js|javascript|ts|typescript/.test(lang) ? 'js' : lang;
+  return [
+    '请批改下面这道编程题。',
+    '',
+    `题目：${q.stem}`,
+    `语言：${q.language || '不限'}`,
+    '',
+    '判定标准：',
+    q.explain,
+    '',
+    '我的代码：',
+    '```' + fence,
+    code,
+    '```',
+    '',
+    '按这个格式回答：',
+    '结论：通过 / 不通过（只选一个）',
+    '理由：逐条对照判定标准，说明满足和不满足的地方',
+    '问题：如有，指出具体行或逻辑错误',
+    '改法：一两句可执行的修改建议，不要给出完整答案',
+  ].join('\n');
+}
+
 function nextQuestion() {
   const s = state.quiz;
   if (!s) return;
@@ -1092,6 +1221,7 @@ function importBackup() {
       const data = JSON.parse(text);
       const r = await store.importAll(data);
       state.progress = Object.fromEntries((await store.allProgress()).map((p) => [p.qid, p]));
+      state.codes = Object.fromEntries((await store.allCodes()).map((c) => [c.qid, c]));
       render();
       toast(`导入完成：更新 ${r.imported} 条，跳过 ${r.skipped} 条`);
     } catch (e) {
@@ -1114,6 +1244,7 @@ async function resetAll() {
     onConfirm: async () => {
       await store.resetAll();
       state.progress = {};
+      state.codes = {};
       state.chat = [];
       render();
       toast('已清空');
@@ -1198,6 +1329,10 @@ document.addEventListener('click', async (e) => {
 
     case 'skip':
       nextQuestion();
+      break;
+
+    case 'judge-code':
+      await judgeCode(el.dataset.qid);
       break;
 
     case 'restart':
@@ -1316,6 +1451,7 @@ document.addEventListener('input', (e) => {
     autoGrow(t);
     updateSendState();
   }
+  if (t.id === 'code-input') queueCodeSave(t);
   if (t.id === 'cfg-key') {
     // 边打边解锁，否则输入后直接点「测试连接」时按钮还是灰的
     const btn = document.querySelector('[data-act="test-api"]');
@@ -1333,6 +1469,10 @@ document.addEventListener('keydown', (e) => {
   if (e.target.id === 'cfg-key' && e.key === 'Enter') {
     e.preventDefault();
     document.querySelector('[data-act="key-save"]')?.click();
+  }
+  if (e.target.id === 'code-input' && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    document.querySelector('[data-act="judge-code"]')?.click();
   }
 });
 
@@ -1471,6 +1611,7 @@ async function boot() {
   }
 
   state.progress = Object.fromEntries((await store.allProgress()).map((p) => [p.qid, p]));
+  state.codes = Object.fromEntries((await store.allCodes()).map((c) => [c.qid, c]));
   state.readMarks = await store.getReadMarks();
   state.chat = await store.getChat();
   if (!Array.isArray(state.chat)) state.chat = [];

@@ -21,6 +21,17 @@
  *      |---|---|---|
  *      | HSE | ... | ... |
  *
+ * 编程题长这样（**编程题** 段内，不需要选项和答案）：
+ *
+ *   **编程题**
+ *
+ *   1. 题干：写一个函数 xxx
+ *      - 语言: C
+ *      - 判定: 给 AI 的批改标准（必须实现什么、不许用什么、怎么算通过）
+ *      - 提示: 可选，答题前就能看的思路提示
+ *      - 参考: 可选，参考答案代码（前端默认折叠）
+ *      - 踩坑场景: 真实翻车现场（可选）
+ *
  * 设计原则：
  *   - 缺字段、答案不在选项里、选项重复 → 直接报错退出，并指出文件与行号。
  *     绝不静默跳过：讲课写错格式时，题目会悄悄从题库里消失，比报错难排查一百倍。
@@ -42,12 +53,12 @@ const OUT_FILE = path.join(ROOT, 'app', 'data', 'questions.json');
 
 const SKIP_DIRS = new Set(['_阅读版', '_暂存', '.dsh', '.git', 'node_modules', '图']);
 
-const MARK_QUIZ = /^\*\*选择题\*\*\s*$/;
+const MARK_QUIZ = /^\*\*(选择题|编程题)\*\*\s*$/;
 const MARK_TERMS = /^\*\*术语\*\*\s*$/;
 const MARK_END = /^(?:#{1,6}\s|\*\*(?:答题记录|实践任务|本章易错点|本章小结)\*\*)/;
 const Q_START = /^(\d+)\.\s+(.+)$/;
 const OPTION = /^[-*]\s*([A-Za-z])\s*[.、)]\s*(.+)$/;
-const FIELD = /^[-*]\s*(答案|判定|解析|踩坑场景|陷阱|类型|标签|出处|来源)\s*[:：]\s*(.*)$/;
+const FIELD = /^[-*]\s*(答案|判定|解析|踩坑场景|陷阱|类型|标签|出处|来源|语言|提示|参考)\s*[:：]\s*(.*)$/;
 const TABLE_ROW = /^\|(.+)\|$/;
 
 // 行内 markdown 归一化，只用于生成 rev 哈希（渲染在前端做）
@@ -86,6 +97,7 @@ function parseFile(md, relPath) {
   const errors = [];
 
   let inQuiz = false;
+  let quizType = 'choice';   // 当前段是选择题还是编程题
   let cur = null;
   let field = null;        // 当前可续行的字段
   let inTerms = false;
@@ -113,8 +125,10 @@ function parseFile(md, relPath) {
     if (h3m) curSection = h3m[1];
 
     if (MARK_QUIZ.test(line)) {
+      const mm = line.match(MARK_QUIZ);
       flush();
       inQuiz = true;
+      quizType = mm[1] === '编程题' ? 'code' : 'choice';
       continue;
     }
     if (inQuiz && MARK_END.test(line)) {
@@ -131,10 +145,14 @@ function parseFile(md, relPath) {
       cur = {
         no: Number(qm[1]),
         stem: qm[2].trim(),
+        type: quizType,
         section: curSection,
         options: [],
         answer: '',
         explain: '',
+        language: '',
+        hint: '',
+        reference: '',
         pitfall: '',
         kind: '',
         terms: [],
@@ -194,6 +212,15 @@ function parseFile(md, relPath) {
       } else if (key === '踩坑场景' || key === '陷阱') {
         cur.pitfall = val;
         field = 'pitfall';
+      } else if (key === '语言') {
+        cur.language = val;
+        field = 'language';
+      } else if (key === '提示') {
+        cur.hint = val;
+        field = 'hint';
+      } else if (key === '参考') {
+        cur.reference = val;
+        field = 'reference';
       } else if (key === '类型' || key === '标签') {
         cur.kind = val;
         field = null;
@@ -215,6 +242,12 @@ function parseFile(md, relPath) {
 
   // ---- 校验 ----
   for (const q of questions) {
+    if (!q.stem) fail(q.line, `第 ${q.no} 题题干为空`);
+    if (q.type === 'code') {
+      if (!q.language) fail(q.line, `第 ${q.no} 题（编程）缺少「- 语言:」`);
+      if (!q.explain) fail(q.line, `第 ${q.no} 题（编程）缺少「- 判定:」，AI 没法按标准批改`);
+      continue;
+    }
     if (q.options.length < 2) {
       fail(q.line, `第 ${q.no} 题只有 ${q.options.length} 个选项（至少 2 个）`);
     }
@@ -227,7 +260,6 @@ function parseFile(md, relPath) {
     if (new Set(keys).size !== keys.length) {
       fail(q.line, `第 ${q.no} 题选项字母重复：${keys.join('')}`);
     }
-    if (!q.stem) fail(q.line, `第 ${q.no} 题题干为空`);
     if (!q.explain) fail(q.line, `第 ${q.no} 题缺少「- 判定:」，答完无法解释`);
   }
 
@@ -256,7 +288,7 @@ async function main() {
 
   for (const file of files) {
     const md = await readFile(file, 'utf8');
-    if (!md.includes('**选择题**')) continue;
+    if (!md.includes('**选择题**') && !md.includes('**编程题**')) continue;
 
     const { questions, errors } = parseFile(md, rel(file));
     allErrors.push(...errors);
@@ -279,7 +311,7 @@ async function main() {
   }
 
   if (!total) {
-    console.error('没有抽到任何题目。检查 md 里是否有「**选择题**」段落。');
+    console.error('没有抽到任何题目。检查 md 里是否有「**选择题**」或「**编程题**」段落。');
     process.exit(1);
   }
 
@@ -297,21 +329,29 @@ async function main() {
         let id = `${subjectName}/${chapterName}/q${q.no}`;
         while (usedIds.has(id)) id += '-' + (++seq);
         usedIds.add(id);
-        return {
+        const base = {
           id,
           no: q.no,
+          type: q.type,
           section: q.section || '',
           stem: q.stem,
           options: q.options,
           answer: q.answer,
           explain: q.explain,
+          language: q.language || '',
+          hint: q.hint || '',
+          reference: q.reference || '',
           pitfall: q.pitfall || '',
           kind: q.kind || '',
           terms: q.terms,
-          rev: shortHash(
-            [q.stem, q.answer, ...q.options.map((o) => o.key + o.text)].map(normalizeInline).join('\u0001')
-          ),
         };
+        base.rev =
+          q.type === 'code'
+            ? shortHash([q.stem, q.language, q.explain].map(normalizeInline).join('\u0001'))
+            : shortHash(
+                [q.stem, q.answer, ...q.options.map((o) => o.key + o.text)].map(normalizeInline).join('\u0001')
+              );
+        return base;
       });
       qs.sort((a, b) => a.no - b.no);
       const sectionNames = [...new Set(qs.map((q) => q.section).filter(Boolean))];

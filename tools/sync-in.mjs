@@ -20,6 +20,7 @@ import path from 'node:path';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const STATE_FILE = path.join(ROOT, 'data', 'sync-state.json');
+const CODES_FILE = path.join(ROOT, 'data', 'codes.json');
 const REPORT_FILE = path.join(ROOT, '总结', '_同步报告.md');
 const CHAT_FILE = path.join(ROOT, '总结', '_提问记录.md');
 const QUESTIONS_FILE = path.join(ROOT, 'app', 'data', 'questions.json');
@@ -164,6 +165,7 @@ async function main() {
     devices: {},
     progress: {},
     log: [],
+    codes: {},
   };
 
   const incomingProgress = data.progress || [];
@@ -211,6 +213,21 @@ async function main() {
   }
   state.chat.sort((a, b) => (a.at || 0) - (b.at || 0));
 
+  // 编程题草稿：按 updatedAt 取新的；本地没有判定结果时补上
+  state.codes = state.codes && typeof state.codes === 'object' ? state.codes : {};
+  const incomingCodes = Array.isArray(data.codes) ? data.codes : [];
+  let newCodes = 0;
+  for (const c of incomingCodes) {
+    if (!c?.qid) continue;
+    const cur = state.codes[c.qid];
+    const newer = !cur || (c.updatedAt || 0) > (cur.updatedAt || 0);
+    const fillVerdict = cur && !cur.verdict && c.verdict;
+    if (newer || fillVerdict) {
+      state.codes[c.qid] = { ...cur, ...c };
+      newCodes++;
+    }
+  }
+
   const deviceKey = String(data.device || '').slice(0, 60) || 'unknown-device';
   state.devices[deviceKey] = {
     lastSyncAt: Date.now(),
@@ -222,6 +239,9 @@ async function main() {
 
   await mkdir(path.dirname(STATE_FILE), { recursive: true });
   await writeFile(STATE_FILE, JSON.stringify(state, null, 2), 'utf8');
+  if (Object.keys(state.codes).length) {
+    await writeFile(CODES_FILE, JSON.stringify(state.codes, null, 2), 'utf8');
+  }
 
   // ---------------------------------------------------------------- 报告
 
@@ -283,6 +303,27 @@ async function main() {
     lines.push('');
   }
 
+  // 编程题草稿（手机上写了代码的题，含 AI 判定结果）
+  const codeList = Object.values(state.codes);
+  if (codeList.length) {
+    lines.push('## 编程题草稿');
+    lines.push('');
+    lines.push('| 题目 | 语言 | 草稿更新 | AI 判定 |');
+    lines.push('|---|---|---|---|');
+    for (const c of codeList.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))) {
+      const meta = qIndex.get(c.qid);
+      const title = meta ? `${meta.subject} · ${meta.chapter} · 第 ${meta.q.no} 题` : c.qid;
+      let verdict = '未判定';
+      if (c.verdict) {
+        const m = c.verdict.match(/结论[:：]\s*(通过|不通过)/);
+        verdict = m ? m[1] : '已判定';
+        if (c.verdictAt) verdict += `（${fmtTime(c.verdictAt)}）`;
+      }
+      lines.push(`| ${title} | ${c.lang || '—'} | ${fmtTime(c.updatedAt)} | ${verdict} |`);
+    }
+    lines.push('');
+  }
+
   if (wrong.length) {
     lines.push('## 错题清单');
     lines.push('');
@@ -296,7 +337,7 @@ async function main() {
       lines.push(`### ${meta.subject} · ${meta.chapter} · 第 ${q.no} 题`);
       lines.push('');
       lines.push(`- 题干：${q.stem}`);
-      lines.push(`- 正确答案：${q.answer}`);
+      lines.push(`- 正确答案：${q.answer || '（编程题，无标准答案）'}`);
       lines.push(`- 错了 ${p.wrongCount || 0} 次，最后作答 ${fmtTime(p.lastAt)}`);
       if (q.pitfall) lines.push(`- 踩坑点：${q.pitfall}`);
       lines.push('');
@@ -334,7 +375,7 @@ async function main() {
           `- 题目：${q.stem}`,
           `- 选项：${(q.options || []).map((o) => `${o.key}. ${o.text}`).join('；')}`,
           `- 我选：${p.lastChoice || '（未知）'}`,
-          `- 正确：${q.answer}`,
+          `- 正确：${q.answer || '—'}`,
           `- 错因：手机上答错 ${p.wrongCount || 1} 次`,
           `- 正确思路：${(q.explain || '').replace(/\n+/g, ' ').slice(0, 300)}`,
           `- 关联：\`${p.qid}\``,
@@ -364,6 +405,7 @@ async function main() {
     console.log(`  提问记录   ${path.relative(ROOT, CHAT_FILE).split(path.sep).join('/')}`);
   }
   console.log(`  本次更新   ${updated} 条（跳过 ${skipped} 条旧记录，新增 ${newLogs} 条作答日志）`);
+  if (newCodes) console.log(`  编程草稿   ${newCodes} 条更新（累计 ${codeList.length} 条）`);
   if (newChat) console.log(`  新问答     ${newChat} 条（累计 ${state.chat.length} 条消息）`);
   console.log('  ─────────────────────────────');
   console.log(`  做过的题   ${progressList.length}`);
