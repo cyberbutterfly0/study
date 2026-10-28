@@ -16,7 +16,7 @@
  * 用法：node tools/build-library.mjs
  */
 
-import { readdir, readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readdir, readFile, writeFile, mkdir, copyFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -40,8 +40,32 @@ function esc(s) {
     .replace(/"/g, '&quot;');
 }
 
+// 链接改写：md 里的相对链接在 app 里必须变成站内路由。否则点一下请求的是不存在的 .md 文件，
+// GitHub Pages 返回 404.html（= index 副本），表现就是「点一下回到首页」。
+// 图（.html）不在 app 部署范围内，build 时复制到 app/figures/，链接改指那里。
+const LINK_MAP = new Map();   // 相对 总结/ 的路径（无 .md）→ section id
+const FIG_MAP = new Map();    // 图文件名 → app 里的副本路径
+
+function rewriteHref(href, ctx) {
+  if (!href || /^[a-z]+:/i.test(href) || href.startsWith('#') || href.startsWith('/')) return href;
+  const rel = ctx && ctx.relPath;
+  if (!rel) return href;
+  const m = href.match(/^([^?#]+)(\?[^#]*)?(#.*)?$/);
+  if (!m) return href;
+  const target = path.posix.normalize(path.posix.join(path.posix.dirname(rel), m[1]));
+  if (/\.md$/i.test(target)) {
+    const id = LINK_MAP.get(target.replace(/\.md$/i, ''));
+    return id ? `#/r/${encodeURIComponent(id)}` : href;
+  }
+  if (/\.html$/i.test(target)) {
+    const dest = FIG_MAP.get(path.posix.basename(target));
+    return dest || href;
+  }
+  return href;
+}
+
 /** 行内元素渲染。先转义，再按固定顺序替换，避免互相污染。 */
-function inline(text) {
+function inlineText(text, ctx = {}) {
   // 少数几个白名单 HTML 标签原样放行（<br>、<details>/<summary> 折叠块），先占位防被 esc 掉
   const KEEP = [];
   const keep = (html) => {
@@ -68,7 +92,9 @@ function inline(text) {
 
   // 链接 [text](href)
   s = s.replace(/\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g, (_, text2, href, title) => {
-    return `<a href="${href}"${title ? ` title="${title}"` : ''}>${text2}</a>`;
+    const h = rewriteHref(href, ctx);
+    const blank = /^figures\//.test(h) ? ' target="_blank" rel="noopener"' : '';
+    return `<a href="${h}"${title ? ` title="${title}"` : ''}${blank}>${text2}</a>`;
   });
 
   s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
@@ -190,7 +216,8 @@ function splitChapterSections(md) {
   return out;
 }
 
-function renderMarkdown(md) {
+function renderMarkdown(md, ctx = {}) {
+  const inline = (t) => inlineText(t, ctx);
   const lines = md.split(/\r?\n/);
   const out = [];
   const headings = [];
@@ -512,6 +539,36 @@ async function main() {
   }
   files.sort((a, b) => a.localeCompare(b, 'zh'));
 
+  // 链接改写表：登记所有 md 的目标 id（被拆成多节的章节文件，下面会覆盖成 ~s0）
+  for (const f of files) {
+    const rel = path.relative(SRC_DIR, f).split(path.sep).join('/');
+    if (/^(?:[^/]+\/)?(?:INDEX|README)\.md$/i.test(rel)) continue;
+    const id = rel.replace(/\.md$/i, '');
+    LINK_MAP.set(id, id);
+  }
+
+  // 图（.html）不在 GitHub Pages 的部署范围里（只部署 app/），复制进 app/figures/，
+  // md 里的 .html 链接改指副本，这样点图不会 404。
+  const figDir = path.join(ROOT, 'app', 'figures');
+  const figFiles = [];
+  async function collectHtml(dir) {
+    for (const e of await readdir(dir, { withFileTypes: true })) {
+      if (e.name.startsWith('_') || e.name.startsWith('.')) continue;
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) await collectHtml(p);
+      else if (/\.html$/i.test(e.name)) figFiles.push(p);
+    }
+  }
+  await collectHtml(SRC_DIR);
+  if (figFiles.length) {
+    await mkdir(figDir, { recursive: true });
+    for (const f of figFiles) {
+      const base = path.basename(f);
+      FIG_MAP.set(base, `figures/${encodeURIComponent(base)}`);
+      await copyFile(f, path.join(figDir, base));
+    }
+  }
+
   const subjects = new Map();   // 学科 → 章节[]
   let totalChars = 0;
 
@@ -536,7 +593,7 @@ async function main() {
     if (/^(INDEX|README)$/i.test(baseName)) continue;
 
     const md = mdCache.get(file);
-    const { html, title, headings } = renderMarkdown(stripQuiz(md));
+    const { html, title, headings } = renderMarkdown(stripQuiz(md), { relPath: relInSrc.join('/') });
     if (!html.trim()) continue;
 
     const subjectName = relInSrc.length > 1 ? relInSrc[0] : '其他';
@@ -556,9 +613,11 @@ async function main() {
     if (isChapter) {
       const parts = splitChapterSections(stripQuiz(md));
       if (parts.length >= 3) {
+        // 整个章节文件被拆成多页，md 里指向它的链接统一落到第一节
+        LINK_MAP.set(baseId, `${baseId}~s0`);
         const chapterOrder = Number(chapterNo[1]) * 100;
         parts.forEach((p, i) => {
-          const r = renderMarkdown(p.md);
+          const r = renderMarkdown(p.md, { relPath: relInSrc.join('/') });
           if (!r.html.trim()) return;
           const ann = annotateTerms(r.html, glossaryBySubject.get(subjectName) || []);
           subjects.get(subjectName).push({
