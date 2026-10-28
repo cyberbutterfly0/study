@@ -1280,6 +1280,24 @@ function showSheet({ title, desc, confirmText, cancelText = '取消', danger = f
 // ---------------------------------------------------------------- 事件委托
 
 document.addEventListener('click', async (e) => {
+  // 笔记正文里的页内锚点（#item-1、#速查表 等）：只滚动到目标，不碰 location.hash。
+  // 否则 hash 会变成非 #/ 开头的值，被 SPA 路由当成未知页面，看起来就像「一点就回首页」。
+  const inPageAnchor = e.target.closest('a[href^="#"]');
+  if (inPageAnchor) {
+    const href = inPageAnchor.getAttribute('href') || '';
+    if (!href.startsWith('#/')) {
+      e.preventDefault();
+      let id = href.slice(1);
+      try { id = decodeURIComponent(id); } catch { /* 保持原样 */ }
+      const target = document.getElementById(id);
+      if (target) {
+        const y = target.getBoundingClientRect().top + window.scrollY - 96;
+        window.scrollTo({ top: y, behavior: 'smooth' });
+      }
+      return;
+    }
+  }
+
   const el = e.target.closest('[data-act]');
   if (!el) return;
   const act = el.dataset.act;

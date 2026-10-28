@@ -240,7 +240,11 @@ function renderMarkdown(md) {
       if (level === 1 && !title) title = text.replace(/[#*`]/g, '').trim();
       const id = 'h-' + headings.length;
       headings.push({ id, level, text: text.replace(/[#*`]/g, '').trim() });
-      out.push(`<h${level} id="${id}">${inline(text)}</h${level}>`);
+      // 「### #1 xxx」这类条目额外挂稳定锚点 item-N：速查表里的「详情 #N」链接用它，
+      // 标题文字以后改了也不会断（阅读版 build-reader.ps1 用的是同一套约定）。
+      const itemNo = text.match(/^#(\d+)\s/);
+      const anchor = itemNo ? `<span class="anchor" id="item-${itemNo[1]}"></span>` : '';
+      out.push(`<h${level} id="${id}">${anchor}${inline(text)}</h${level}>`);
       i++;
       continue;
     }
@@ -337,7 +341,22 @@ function renderMarkdown(md) {
   }
 
   closeList(listStack);
-  return { html: out.join('\n'), title, headings };
+
+  // 页内锚点收尾：md 里手写的是 #item-N 和 #标题文字（如「回: #速查表」），
+  // 而标题 id 是自动生成的 h-N。这里把 #标题文字 的链接映射到对应的 h-N；
+  // #item-N 原样保留（标题处已经挂了同名 span）。不处理的话 app 里点了会改
+  // location.hash，被 hash 路由当成未知页面 → 表现为「点了回到首页」。
+  let html = out.join('\n');
+  const byLabel = new Map(headings.map((x) => [x.text, x.id]));
+  html = html.replace(/href="#([^"]+)"/g, (full, frag) => {
+    if (/^(h-|item-)/.test(frag)) return full;
+    let label = frag;
+    try { label = decodeURIComponent(frag); } catch { /* 非法转义就按原样找 */ }
+    const id = byLabel.get(label);
+    return id ? `href="#${id}"` : full;
+  });
+
+  return { html, title, headings };
 }
 
 async function walk(dir, out = []) {
