@@ -225,7 +225,11 @@ function viewStudy() {
     .map((s) => {
       const st = subjectStats(s.id);
       const readN = s.sections.filter((sec) => isRead(sec.id)).length;
+      // 有子主题（如 Java 下的集合框架/控制流/算法入门）时，首页卡片显示「N 个子主题」，
+      // 点进去的主题页会先列子主题，再进具体页面。
+      const groups = new Set(s.sections.map((sec) => sec.group).filter(Boolean));
       const desc = [
+        groups.size > 1 ? `${groups.size} 个子主题` : '',
         `${s.sections.length} 篇笔记`,
         readN ? `已读 ${readN}/${s.sections.length}` : '',
         st.total ? `${st.total} 道题` : '',

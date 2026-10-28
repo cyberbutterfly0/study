@@ -540,10 +540,13 @@ async function main() {
     if (!html.trim()) continue;
 
     const subjectName = relInSrc.length > 1 ? relInSrc[0] : '其他';
+    // 第二层目录 = 子主题（如 总结/Java/集合框架/）。父主题页先列子主题，点进去再看内容，
+    // 这样同一门语言的多个话题不会在首页铺成一排。
+    const subTheme = relInSrc.length > 2 ? relInSrc[1] : null;
     if (!subjects.has(subjectName)) subjects.set(subjectName, []);
 
     const isAux = Object.prototype.hasOwnProperty.call(AUX_TITLES, baseName);
-    const isOverview = baseName === subjectName;            // 与学科目录同名的总览
+    const isOverview = subTheme ? baseName === subTheme : baseName === subjectName;   // 与所在目录同名的总览
     const chapterNo = baseName.match(/^第(\d+)章/);
     const isChapter = Boolean(chapterNo);
 
@@ -586,6 +589,9 @@ async function main() {
       name: AUX_TITLES[baseName] || title || baseName,
       file: baseName,
       kind: isOverview ? 'overview' : isAux ? 'appendix' : isChapter ? 'chapter' : 'note',
+      // 子主题目录里的页面归到同一个组：主题页先显示「集合框架 / 控制流」这些子主题，
+      // 点进去才看具体页面（app 的 viewSubject/viewChapter 直接消费这两个字段）。
+      ...(subTheme ? { group: `${subjectName}/${subTheme}`, groupName: subTheme } : {}),
       // 总览最前 → 第N章按编号 → 其他笔记 → 附录最后
       order: isOverview
         ? -10
