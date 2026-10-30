@@ -31,3 +31,6 @@ data/synced-files.json
 
 # archify 中间产物（图已复制到 总结/ 里）
 .archify/
+
+# Obsidian vault 配置（本机编辑器设置，不入库）
+.obsidian/
