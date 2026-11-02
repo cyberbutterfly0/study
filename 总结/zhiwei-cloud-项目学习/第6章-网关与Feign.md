@@ -54,6 +54,19 @@ public interface SystemHealthApi {
 }
 ```
 
+**契约写法的硬约束**（2026-11-02 提交 `9b937dc` 统一整改过）：
+
+- 路径前缀写在 `@FeignClient` 的 `path` 属性上，**不能**在接口上加类级 `@RequestMapping`
+- 原因一：OpenFeign 4.x 的 `SpringMvcContract.processAnnotationOnClass` 碰到 `@FeignClient` 接口上的类级 `@RequestMapping` 会直接抛 `IllegalArgumentException: @RequestMapping annotation not allowed on @FeignClient interfaces`，启动就失败
+- 原因二：`@FeignClient(path = ...)` 不会被 Spring MVC 继承，所以**提供方 Controller 要自己写类级 `@RequestMapping`**，方法上只加 `@Override`
+- 规范原文在 `zhiwei-ai-governance/standards/backend-coding-standards.md`
+
+| 位置 | 写法 | 结果 |
+|---|---|---|
+| 错误 | 接口上 `@RequestMapping("/api/system")` + `@FeignClient(name="...")` | 启动报 `IllegalArgumentException` |
+| 正确 | `@FeignClient(name="...", path="/api/system")` + 方法级 `@GetMapping` | 正常 |
+| 提供方 | Controller 类上 `@RequestMapping("/api/system")`，方法 `@Override` | 路由正确 |
+
 ### 2. 提供方实现
 
 `system-server` 的 `HealthController implements SystemHealthApi` —— 实现契约，不用再写映射注解。
