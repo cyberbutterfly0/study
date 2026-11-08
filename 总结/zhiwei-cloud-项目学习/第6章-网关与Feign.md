@@ -40,6 +40,33 @@ Spring Cloud Gateway 4.3 起把 `spring.cloud.gateway.*` 整体废弃，新路�
 
 新增微服务不用改网关配置。
 
+### 网关层错误也统一成 Ret（11-06 新增）
+
+`zhiwei-gateway/src/main/java/cloud/zhiwei/gateway/handler/GlobalErrorWebExceptionHandler.java`（151 行）：
+
+```java
+@Component
+@Order(-1)
+public class GlobalErrorWebExceptionHandler implements ErrorWebExceptionHandler
+```
+
+要解决的问题：请求到不了后端时（没有匹配路由、服务全部下线），错误是**网关自己**产生的，走的是 WebFlux 的 `ErrorWebExceptionHandler`，和业务服务的 `@RestControllerAdvice` 完全无关。以前返回空 body，前端 `JSON.parse` 直接炸，看不出是 404 还是 503。
+
+几个实现要点：
+
+- `@Order(-1)` 排在 Spring Boot 默认的 `DefaultErrorWebExceptionHandler` 前面，否则轮不到它
+- 把「无路由 404」「服务全下线 503」「500」都包成 `Ret`（httpCode/code/msg/requestId/timestamp 齐全）
+- 响应已经提交（`response.isCommitted()`）时不再改写，否则会抛重复写响应的异常
+- 文案是硬编码中英双语，按 `Accept-Language` 请求头判断——**WebFlux 环境用不了 Servlet 的 `LocaleContextHolder`**
+- 网关模块没引 Lombok，日志用手写 Logger；序列化用 `ZhiWeiJson`
+
+这层和业务服务的 `GlobalExceptionHandler` 是两套，别搞混：
+
+| 层 | 类 | 触发场景 |
+|---|---|---|
+| 网关 | `GlobalErrorWebExceptionHandler`（WebFlux） | 没路由、服务不可用、网关自身异常 |
+| 业务服务 | `GlobalExceptionHandler`（Servlet） | Controller/Service 里抛出的异常 |
+
 ## 二、Feign 跨服务调用
 
 三个文件配合：
