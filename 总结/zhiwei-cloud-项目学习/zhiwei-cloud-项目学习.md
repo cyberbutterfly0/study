@@ -15,7 +15,7 @@
 | 第 2 章 | 启动流程 | 第一次把服务跑起来 |
 | 第 3 章 | 数据库连接 | 连 PolarDB、IDEA 里挂数据源 |
 | 第 4 章 | 配置体系 | 改配置不知道改哪层、Nacos 配置没生效 |
-| 第 5 章 | 框架层代码 | 看 Ret / 异常 / traceId / i18n / 参数校验 / 操作日志怎么实现的 |
+| 第 5 章 | 框架层代码 | 看 Ret / 异常 / traceId / i18n / 参数校验 / 操作日志 / 安全链怎么实现的 |
 | 第 6 章 | 网关与 Feign | 请求怎么进网关、服务间怎么调 |
 | 第 7 章 | 已知坑 | 踩之前先看一眼 |
 | 第 8 章 | 前端项目 | 启动管理端、前端目录结构、和旧截图的差别 |
@@ -28,6 +28,8 @@
 ## 项目现状
 
 骨架阶段：框架层、网关、system、infra 有真代码；pay、member、booking、wx、mall 只有目录和 pom，Java 文件还是 IDEA 生成的 `Main.java`。
+
+**安全已经有实现，不是空的**：`zhiwei-spring-boot-starter-security` 里的 `SecurityAutoConfiguration` 提供 `SecurityFilterChain`（CSRF 关、无状态 Session、白名单 permitAll、其余 authenticated、JWT 过滤器）；但 JWT 签名密钥只有代码里的默认值，12 个 `application*.yml` 全都没覆盖（见第 5 章十一、坑 #20）。
 
 - 版本以根 `pom.xml` 为准（和云效文档写的版本有出入，见第 1 章）
 - 最后核对：2026-11-08（本地分支 `c-1.1`，HEAD `e8866c3`，与团队 `origin/master` 一致；11-07 之后是否有新提交未验证，本地 `git fetch` 跑不了）
