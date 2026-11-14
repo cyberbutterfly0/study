@@ -651,14 +651,16 @@ async function main() {
       // 子主题目录里的页面归到同一个组：主题页先显示「集合框架 / 控制流」这些子主题，
       // 点进去才看具体页面（app 的 viewSubject/viewChapter 直接消费这两个字段）。
       ...(subTheme ? { group: `${subjectName}/${subTheme}`, groupName: subTheme } : {}),
-      // 总览最前 → 第N章按编号 → 其他笔记 → 附录最后
+      // 总览最前 → 第N章按编号 → 其他笔记 → 附录 → 更新记录最后
       order: isOverview
         ? -10
         : isAux
           ? 900 + Object.keys(AUX_TITLES).indexOf(baseName)
           : isChapter
             ? Number(chapterNo[1]) * 100
-            : 500,
+            : /^更新-/.test(baseName)
+              ? 9999
+              : 500,
       chars: md.length,
       html: ann.html,
       terms: ann.used,

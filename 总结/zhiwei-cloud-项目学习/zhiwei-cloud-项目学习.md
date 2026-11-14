@@ -20,6 +20,8 @@
 | 第 7 章 | 已知坑 | 踩之前先看一眼 |
 | 第 8 章 | 前端项目 | 启动管理端、前端目录结构、和旧截图的差别 |
 | 第 9 章 | 团队开发规范 | 写代码前对齐命名/质量/团队文化，以及仓库自带的 AI 治理体系 |
+| 第 10 章 | 2026-11-14 会议与项目更新 | 对上这次会议和 11-14 那批提交，知道团队现在推到哪一步 |
+| 第 11 章 | Member 模块 CRUD 实操 | 我负责 member 表：从拉分支、建表、权限码到五层代码、起服务、Swagger、门禁提交，照着做 |
 
 ## 架构图
 
@@ -27,12 +29,21 @@
 
 ## 项目现状
 
-骨架阶段：框架层、网关、system、infra 有真代码；pay、member、booking、wx、mall 只有目录和 pom，Java 文件还是 IDEA 生成的 `Main.java`。
-
-**安全已经有实现，不是空的**：`zhiwei-spring-boot-starter-security` 里的 `SecurityAutoConfiguration` 提供 `SecurityFilterChain`（CSRF 关、无状态 Session、白名单 permitAll、其余 authenticated、JWT 过滤器）；但 JWT 签名密钥只有代码里的默认值，12 个 `application*.yml` 全都没覆盖（见第 5 章十一、坑 #20）。
+**2026-11-14 起进入「分模块开发」阶段**：框架层、网关、system、infra 有真代码；member 刚初始化（只有启动类 + 健康检查，业务接口 0 行，我负责）；pay / booking / wx / mall 只有 pom。
 
 - 版本以根 `pom.xml` 为准（和云效文档写的版本有出入，见第 1 章）
-- 最后核对：2026-11-08（本地分支 `c-1.1`，HEAD `e8866c3`，与团队 `origin/master` 一致；11-07 之后是否有新提交未验证，本地 `git fetch` 跑不了）
+- 最后核对：2026-11-15（本地分支 `c-1.1`，HEAD `7c46101`，与 `origin/master` 一致）
+- 治理体系已从「文档规范」升级成「可执行门禁」：`gate-backend.sh` 7 项检查 + 版本化 pre-commit；**GitHub Actions 已删、Codeup Flow 没建，当前没有 CI**（见第 9 章）
+- 认证：JWT_SECRET 已外置到 `.env`，缺失或不足 32 字节启动直接失败（S1，见坑 #20）
+
+2026-11-14 那一轮（`e8866c3..7c46101`，25 个提交、143 文件 +15359/−624）：
+
+- **治理门禁** `24a62fa` + `d225fc2` + `5e8b250` + `271ac6a`：`gates/gate-backend.sh`、`.githooks`、`install-hooks.sh`、`selftest.sh`；CI 收敛为 Codeup Flow（控制台未建）
+- **安全整改** B8–B15：@PreAuthorize + 权限码全量补齐，401/403 语义闭环；D9 菜单父节点校验；13 个 PermissionTest
+- **JWT 密钥外置** `19f13be`（decisions/005）
+- **member 模块初始化** `ade690f`：48083、健康检查、网关路由已登记；`sql/member/` 6 张表 DDL 同时入库
+- **.env 纳入版本管理** `7af4c26`（团队强制策略）
+- **前端**：`zhiwei-frontend/` 被父仓库 gitignore，管理端 React 重构规范与 T07–T12 报告入库
 
 2026-11-01 拉 master 后新增的东西：
 
