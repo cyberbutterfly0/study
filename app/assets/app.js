@@ -500,11 +500,34 @@ function viewRead(sectionId) {
   const { section } = hit;
   const terms = section.terms || [];
 
-  const toc = (section.headings || [])
-    .filter((h) => h.level === 2)
-    .slice(0, 12)
+  const headings = (section.headings || []).filter((h) => h.level === 2);
+  const toc = headings
     .map((h) => `<a href="javascript:void 0" data-act="jump" data-id="${h.id}">${esc(h.text)}</a>`)
     .join('');
+  const tocHtml = !toc
+    ? ''
+    : headings.length > 12
+      ? `<details class="toc toc-long"><summary>本页目录（${headings.length} 条）</summary><div class="toc-list">${toc}</div></details>`
+      : `<div class="toc"><div class="toc-inner">${toc}</div></div>`;
+
+  // 拆页后直接在章内前后翻，不必每次返回章节目录。
+  const siblings = section.group
+    ? hit.subject.sections.filter((s) => s.group === section.group)
+    : [section];
+  const sectionIndex = siblings.findIndex((s) => s.id === section.id);
+  const prev = siblings[sectionIndex - 1];
+  const next = siblings[sectionIndex + 1];
+  const pager = section.group && siblings.length > 1
+    ? `<nav class="reader-pager" aria-label="小节导航">
+        ${prev
+          ? `<a class="btn btn-sm" href="#/r/${encodeURIComponent(prev.id)}" aria-label="上一节：${esc(prev.name)}">← 上一节</a>`
+          : '<span></span>'}
+        <span class="reader-pager-count">${sectionIndex + 1} / ${siblings.length}</span>
+        ${next
+          ? `<a class="btn btn-sm" href="#/r/${encodeURIComponent(next.id)}" aria-label="下一节：${esc(next.name)}">下一节 →</a>`
+          : '<span></span>'}
+      </nav>`
+    : '';
 
   const qCount = sectionQuestions(section).length;
 
@@ -516,8 +539,9 @@ function viewRead(sectionId) {
         ? `<button class="btn btn-sm btn-primary" data-act="start-quiz" data-section="${esc(section.id)}">刷这节 ${qCount}</button>`
         : '',
     })}
-    ${toc ? `<div class="toc"><div class="toc-inner">${toc}</div></div>` : ''}
+    ${tocHtml}
     <article class="prose">${section.html}</article>
+    ${pager}
     ${glossaryFab(terms)}
     ${glossarySheet(section.name, terms)}
   </div>${tabbar('study')}`;

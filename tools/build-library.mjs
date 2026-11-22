@@ -32,11 +32,21 @@ const AUX_TITLES = {
   '平台对照': '平台对照',
 };
 
-// 非「第N章」但用「## 小节」拆页的笔记，按这里给的顺序排（不在表里的排 600）
+// 非「第N章」但用「## 小节」拆页的笔记，按这里给的顺序排。
+// zhiwei 的三本查阅笔记放在第 12 章（1200）之后，避免插断正文章节。
 const NOTE_SPLIT_ORDER = {
-  '英语速查': 500,
-  '资料补救': 520,
-  '知识缺口清单': 540,
+  '英语速查': 1300,
+  '资料补救': 1320,
+  '知识缺口清单': 1340,
+};
+
+// 只给确实过长的章配置拆页，普通章继续保持一页，避免满屏短页。
+const CHAPTER_SPLIT_RULES = {
+  '第9章-团队开发规范': { splitH2: true },
+  '第11章-Member模块CRUD实操': {
+    splitH2: true,
+    deepH2: '五、第 3 步：写五层代码',
+  },
 };
 
 function esc(s) {
@@ -173,12 +183,17 @@ function stripQuiz(md) {
  * 规则：
  *   - 文件头 + `## 本章目标` → 「概览」
  *   - `## 小节` 下面的每个 `### X.Y` → 各自一节（标题就是小节名）
+ *   - `rule.splitH2` 只对明确配置的长章生效，避免把普通章全部拆碎
+ *   - `rule.deepH2` 指定的超长步骤继续按 `###` 拆；步骤引言并入第一个三级小节
  *   - `## 本章易错点` / `## 本章小结` → 合并成「易错点与小结」
  * 只有拆出 3 节以上才真的拆，否则当普通单页处理。
  */
-function splitChapterSections(md, firstTitle = '本章目标') {
+function splitChapterSections(md, firstTitle = '本章目标', rule = {}) {
   const lines = md.split(/\r?\n/);
   const out = [];
+  const hasSectionMarker = /^##\s+小节\s*$/m.test(md);
+  const splitH2 = !hasSectionMarker && rule.splitH2 === true;
+  let splitH3 = false;
   let cur = { name: firstTitle, buf: [] };
   let inSections = false;
   let inTail = false;
@@ -200,20 +215,30 @@ function splitChapterSections(md, firstTitle = '本章目标') {
           cur = { name: '易错点与小结', buf: [] };
           inTail = true;
           inSections = false;
+          splitH3 = false;
         }
         cur.buf.push(line);
       } else if (/^小节$/.test(t)) {
         inSections = true;          // 这个标题本身不输出，只是个分节开关
+      } else if (splitH2) {
+        push();
+        // 只有明确配置的长章才按 ## 拆；页面 header 已显示标题，不重复进正文。
+        cur = { name: t, buf: [] };
+        splitH3 = t === rule.deepH2;
+        inTail = false;
       } else {
-        cur.buf.push(line);         // 本章目标之类留在「概览」里
+        cur.buf.push(line);         // 本章目标或普通单页章的 ## 留在正文里
       }
       continue;
     }
 
-    if (inSections && h3) {
-      push();
+    if ((inSections || splitH3) && h3) {
+      // 超长步骤的引言不单独形成一张短页，并入第一个三级小节。
+      const isDeepIntro = splitH3 && cur.name === rule.deepH2;
+      const intro = isDeepIntro ? cur.buf : [];
+      if (!isDeepIntro) push();
       // 小节标题不进正文（页面 header 已经显示），只留内容
-      cur = { name: h3[1], buf: [] };
+      cur = { name: h3[1], buf: [...intro] };
       continue;
     }
 
@@ -618,7 +643,11 @@ async function main() {
 
     // 章与普通笔记都支持「## 小节」拆页（英语速查、知识缺口清单这类非章文件也要一节一页）
     if (isChapter || /^## 小节$/m.test(md)) {
-      const parts = splitChapterSections(stripQuiz(md), isChapter ? '本章目标' : title || '概览');
+      const parts = splitChapterSections(
+        stripQuiz(md),
+        isChapter ? '本章目标' : title || '概览',
+        CHAPTER_SPLIT_RULES[baseName] || {},
+      );
       if (parts.length >= 3) {
         // 整个章节文件被拆成多页，md 里指向它的链接统一落到第一节
         LINK_MAP.set(baseId, `${baseId}~s0`);

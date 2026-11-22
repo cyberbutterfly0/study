@@ -1128,6 +1128,43 @@ p.muted,
 }
 .toc a:hover { color: var(--brand-text); }
 
+/* 超过 12 个标题时改成可展开纵向目录，不再截断，也不挤横向滚动条。 */
+.toc-long summary {
+  padding: 12px 0;
+  color: var(--text-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+.toc-list {
+  display: grid;
+  max-height: 50vh;
+  overflow-y: auto;
+  padding-bottom: 8px;
+}
+.toc-list a {
+  padding: 9px 0;
+  white-space: normal;
+  line-height: 1.45;
+  border-top: 1px solid var(--border-1);
+}
+
+/* 拆页章的章内导航 */
+.reader-pager {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 10px;
+  margin: 24px 0 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-1);
+}
+.reader-pager > a:last-child { justify-self: end; }
+.reader-pager-count {
+  color: var(--text-3);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 /* ---------- 工具类 ---------- */
 
 .mt-8 { margin-top: 8px; }
