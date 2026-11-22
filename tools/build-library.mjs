@@ -32,6 +32,13 @@ const AUX_TITLES = {
   '平台对照': '平台对照',
 };
 
+// 非「第N章」但用「## 小节」拆页的笔记，按这里给的顺序排（不在表里的排 600）
+const NOTE_SPLIT_ORDER = {
+  '英语速查': 500,
+  '资料补救': 520,
+  '知识缺口清单': 540,
+};
+
 function esc(s) {
   return s
     .replace(/&/g, '&amp;')
@@ -169,10 +176,10 @@ function stripQuiz(md) {
  *   - `## 本章易错点` / `## 本章小结` → 合并成「易错点与小结」
  * 只有拆出 3 节以上才真的拆，否则当普通单页处理。
  */
-function splitChapterSections(md) {
+function splitChapterSections(md, firstTitle = '本章目标') {
   const lines = md.split(/\r?\n/);
   const out = [];
-  let cur = { name: '本章目标', buf: [] };
+  let cur = { name: firstTitle, buf: [] };
   let inSections = false;
   let inTail = false;
 
@@ -609,13 +616,15 @@ async function main() {
 
     const baseId = relPath.replace(/^总结\//, '').replace(/\.md$/, '');
 
-    // 章节：按小节拆成多页，归到同一个分组里
-    if (isChapter) {
-      const parts = splitChapterSections(stripQuiz(md));
+    // 章与普通笔记都支持「## 小节」拆页（英语速查、知识缺口清单这类非章文件也要一节一页）
+    if (isChapter || /^## 小节$/m.test(md)) {
+      const parts = splitChapterSections(stripQuiz(md), isChapter ? '本章目标' : title || '概览');
       if (parts.length >= 3) {
         // 整个章节文件被拆成多页，md 里指向它的链接统一落到第一节
         LINK_MAP.set(baseId, `${baseId}~s0`);
-        const chapterOrder = Number(chapterNo[1]) * 100;
+        const chapterOrder = isChapter
+          ? Number(chapterNo[1]) * 100
+          : (NOTE_SPLIT_ORDER[baseName] ?? 600);
         parts.forEach((p, i) => {
           const r = renderMarkdown(p.md, { relPath: relInSrc.join('/') });
           if (!r.html.trim()) return;
